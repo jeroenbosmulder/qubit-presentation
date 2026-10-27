@@ -20,7 +20,8 @@
  * in sessionStorage so a presenter reload keeps everyone's slot.
  *
  * Roles:  'presenter' — assigns slots, publishes state, reduces ups.
- *         'mirror'    — reduces ups and applies state like the presenter, but never sends.
+ *         'mirror'    — the audience window (P): fully interactive on its own — publish() applies locally, never sends;
+ *                       the presenter's changes arrive (presenter-kit / relay) and override it, one way.
  *         'participant'
  *
  * Plain API (no React):
@@ -145,7 +146,7 @@
 
     var store = makeStore({
       session: session, role: role, status: t.status,
-      state: (saved && saved.state) || { scene: 0, round: 'A', resetToken: 0, p: 0.5, question: 0, lens1: 0, lens2: 90, sheetIn: true, waveView: "3D", lightMode: "wave", mid: 45, view: { az: -35, el: 22 }, theta: 45, delta: 0, mzPhi: 0, mzSource: 'amplitudes', mzRound: 0, armed: false, collect: false, roster: {} },
+      state: (saved && saved.state) ? shallowMerge(saved.state, { lightMode: "beam", waveView: "side view" }) : { scene: 0, round: 'A', resetToken: 0, p: 0.5, question: 0, lens1: 0, lens2: 90, sheetIn: true, waveView: "side view", lightMode: "beam", mid: 45, view: { az: -35, el: 22 }, theta: 45, delta: 0, mzPhi: 0, mzSource: 'amplitudes', mzRound: 0, armed: false, collect: false, roster: {} },
       phones: (saved && saved.phones) || {},
       memo: {},                                    // scratch for figures (histories etc.)
     });
@@ -157,16 +158,22 @@
       t.postMessage({ type: 'state', patch: pending }); pending = null;
     }
     function publish(patch, immediate) {
-      if (role !== 'presenter') return;
+      if (role !== 'presenter' && role !== 'mirror') return;
       var cur = store.get();
       var next = shallowMerge(cur.state, patch);
       store.set(shallowMerge(cur, { state: next }));
+      if (role === 'mirror') return;                           // local only: the mirror never leads
       pending = shallowMerge(pending || {}, patch);
       if (immediate) { if (timer) clearTimeout(timer); flush(); }
       else if (!timer) timer = setTimeout(flush, 80);
       persist();
     }
-    function persist() { if (role === 'presenter') { var c = store.get(); saveJSON(key, { state: c.state, phones: c.phones }); } }
+    // sessionStorage write, coalesced: one JSON of the whole room per 300 ms at most
+    var persistT = null;
+    function persist() {
+      if (role !== 'presenter' || persistT) return;
+      persistT = setTimeout(function () { persistT = null; var c = store.get(); saveJSON(key, { state: c.state, phones: c.phones }); }, 300);
+    }
 
     function nextSlot(phones) {
       var used = {}; Object.keys(phones).forEach(function (f) { used[phones[f].slot] = 1; });
@@ -199,9 +206,23 @@
         if (role === 'presenter') t.postMessage({ type: 'state', patch: cur.state });
         return;
       }
-      if (!ph) ph = phones[m.from] = { slot: nextSlot(phones), tag: '?', up: {}, at: Date.now() };
+      // ordinary snapshots are batched: many phones firing at once become ONE store update (one React render) per 80 ms
+      if (upBatch[m.from]) ph = upBatch[m.from];
+      if (!ph) ph = { slot: nextSlot(phones), tag: '?', up: {}, at: Date.now() };
       var up = shallowMerge(ph.up || {}); up[m.name] = m.data;
-      phones[m.from] = shallowMerge(ph, { up: up, at: Date.now() });
+      upBatch[m.from] = shallowMerge(ph, { up: up, at: Date.now() });
+      if (!upT) upT = setTimeout(flushUps, 80);
+    }
+    var upBatch = {}, upT = null;
+    function flushUps() {
+      if (upT) { clearTimeout(upT); upT = null; }
+      var keys = Object.keys(upBatch); if (!keys.length) return;
+      var cur = store.get(), phones = shallowMerge({}, cur.phones);
+      keys.forEach(function (f) {
+        var fresh = upBatch[f], base = phones[f];
+        phones[f] = base ? shallowMerge(base, { up: shallowMerge(base.up || {}, fresh.up), at: fresh.at }) : fresh;
+      });
+      upBatch = {};
       store.set(shallowMerge(cur, { phones: phones }));
       persist();
       scheduleAgg();
@@ -220,7 +241,7 @@
       return out;
     }
     function scheduleAgg() {
-      if (role !== 'presenter' || aggTimer) return;
+      if ((role !== 'presenter' && role !== 'mirror') || aggTimer) return;
       aggTimer = setTimeout(function () { aggTimer = null; publish({ agg: computeAgg() }); }, 300);
     }
     t.addEventListener('message', onMessage);
@@ -240,7 +261,7 @@
 
     // scene follows the deck: <section data-scene="7"> (falls back to slide index)
     function bindDeck(stageEl) {
-      if (role !== 'presenter') return;
+      if (role !== 'presenter' && role !== 'mirror') return;   // the mirror's own arrow keys move its scene too
       var el = stageEl || (typeof document !== 'undefined' && document.querySelector('deck-stage'));
       if (!el) { setTimeout(function () { bindDeck(stageEl); }, 300); return; }
       // <section data-scene="1" data-pf-round="B" data-pf-question="45"> → publish {scene:1, round:'B', question:45}
@@ -302,6 +323,7 @@
        per-round histories they contributed to; then republish roster + aggregates so every slide and mirror clears too */
     var forgotten = {};
     function forgetPhones(pred) {
+      flushUps();
       var cur = store.get(), phones = {}, gone = [];
       Object.keys(cur.phones).forEach(function (f) { if (pred(f, cur.phones[f])) forgotten[f] = true; });
       Object.keys(cur.phones).forEach(function (f) { if (pred(f, cur.phones[f])) gone.push(f); else phones[f] = cur.phones[f]; });
@@ -316,6 +338,7 @@
       publish({ roster: roster, agg: computeAgg() }, true);
     }
     function resetRound(round) {
+      flushUps();
       var cur = store.get(), phones = {};
       Object.keys(cur.phones).forEach(function (f) {
         var p = cur.phones[f], up = shallowMerge(p.up || {});
@@ -338,6 +361,7 @@
       return { phones: out, n: N, passed: P, frac: N ? P / N : null };
     }
     function resetLightRound(round) {
+      flushUps();
       var cur = store.get(), phones = {};
       Object.keys(cur.phones).forEach(function (f) {
         var p = cur.phones[f], up = shallowMerge(p.up || {});
@@ -348,9 +372,8 @@
       publish({ lresetToken: (cur.state.lresetToken || 0) + 1, lround: round }, true);
       scheduleAgg();
     }
-    // a mirror window never builds its own memo: it receives the presenter's (presenter-kit passes force)
+    // the mirror builds its own memo from its own interactions; the presenter's deltas (presenter-kit) override it
     function setMemo(k, v, force) {
-      if (role === 'mirror' && !force) return;
       store.update(function (c) { var m = shallowMerge(c.memo); if (v === undefined) delete m[k]; else m[k] = v; return shallowMerge(c, { memo: m }); });
     }
 
@@ -378,7 +401,7 @@
     var store = makeStore({
       session: session, status: t.status, from: t.clientId,
       tag: (saved && saved.tag) || null, joined: !!(saved && saved.tag),
-      state: { scene: 0, round: 'A', resetToken: 0, p: 0.5, question: 0, lens1: 0, lens2: 90, sheetIn: true, waveView: "3D", lightMode: "wave", mid: 45, view: { az: -35, el: 22 }, theta: 45, delta: 0, mzPhi: 0, mzSource: 'amplitudes', mzRound: 0, armed: false, roster: {} },
+      state: { scene: 0, round: 'A', resetToken: 0, p: 0.5, question: 0, lens1: 0, lens2: 90, sheetIn: true, waveView: "side view", lightMode: "beam", mid: 45, view: { az: -35, el: 22 }, theta: 45, delta: 0, mzPhi: 0, mzSource: 'amplitudes', mzRound: 0, armed: false, roster: {} },
       me: null,                                     // { slot, tag, bias, theta, delta, twin }
       snapshots: (saved && saved.snapshots) || {},  // last sent per name (re-sent on reconnect)
     });
