@@ -5,6 +5,10 @@
        plain pages get a free-form pad; edits persist in localStorage).
    State sync — window.React.useState is wrapped so every JSON-serializable piece of hook
    state broadcasts from the presenter window and applies in the mirror automatically.
+   Frame-rate hooks (driven by requestAnimationFrame) are detected and NOT streamed per frame:
+   they go out at ≤4/s plus a final value, and the mirror ignores them for any hook it is
+   animating itself — the mirror runs its own animation from the synced triggers.
+   Room memos (figure histories) go out as deltas (appended points), not whole arrays.
    No deck-stage? P still mirrors scroll position. Same-browser only (BroadcastChannel). */
 (function () {
   if (!('BroadcastChannel' in window) || window.__presenterKit) return;
@@ -13,23 +17,37 @@
   var CH = 'pk:' + location.pathname;
   var bc = new BroadcastChannel(CH);
   var stage = function () { return document.querySelector('deck-stage'); };
+  var now = function () { return performance.now(); };
 
   /* ── automatic React useState sync ──
      No extra hooks are injected (safe to patch at any time, even after first render);
      hook instances are identified by their setter (stable in React) and numbered in
      first-seen order, which matches across two windows running the same page. */
   var registry = {}, ids = typeof WeakMap === 'function' ? new WeakMap() : null,
-      pending = {}, lastJson = {}, cache = {}, vals = {}, nextId = 0;
+      pending = {}, lastVal = {}, lastJson = {}, cache = {}, vals = {}, nextId = 0;
+  // frame-rate detection: ≥ HOT_MIN consecutive changes closer than HOT_GAP ms → "hot" until HOT_QUIET ms of silence
+  var HOT_GAP = 60, HOT_MIN = 3, HOT_EVERY = 250, HOT_QUIET = 300;
+  var hotAt = {}, hotRun = {}, hotSince = {}, hotSent = {}, hotTimer = {};
+  function noteChange(id) {
+    var t = now(), gap = t - (hotAt[id] === undefined ? -1e9 : hotAt[id]);
+    hotAt[id] = t;
+    hotRun[id] = gap < HOT_GAP ? (hotRun[id] || 0) + 1 : 0;
+    if (hotRun[id] >= HOT_MIN) hotSince[id] = t;
+  }
+  function isHot(id) { return hotSince[id] !== undefined && now() - hotAt[id] < HOT_QUIET && now() - hotSince[id] < HOT_QUIET; }
   function kind(v) { return v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v; }
   function applyJson(id, json) {
+    if (isHot(id)) return;                                     // the mirror animates this one itself
     var nv; try { nv = JSON.parse(json); } catch (err) { return; }
     if (id in vals && kind(vals[id]) !== kind(nv)) return;   // hook order drifted between windows — never force a wrong-typed value
     try { registry[id](nv); } catch (err) {}
   }
+  function sendState(id) { hotSent[id] = now(); bc.postMessage({ pkState: id, json: cache[id] }); }
   function patchReact(R) {
     if (!R || !R.useState || R.__pkPatched || !ids) return;
     R.__pkPatched = true;
     var orig = R.useState;
+    R.useLocalState = orig;                                    // opt-out: a hook that must never sync
     R.useState = function (init) {
       var pair = orig(init);
       var set = pair[1], id = ids.get(set);
@@ -40,13 +58,23 @@
           delete pending[id];
         }
       }
-      vals[id] = pair[0];
-      if (!isMirror) {
+      var v = pair[0];
+      vals[id] = v;
+      if (v !== lastVal[id] || !(id in lastVal)) {             // identity first — stringify only what actually changed
+        lastVal[id] = v;
         var json;
-        try { json = JSON.stringify(pair[0]); } catch (err) { json = undefined; }
+        try { json = JSON.stringify(v); } catch (err) { json = undefined; }
         if (json !== undefined && json !== lastJson[id]) {
           lastJson[id] = json; cache[id] = json;
-          bc.postMessage({ pkState: id, json: json });
+          noteChange(id);
+          if (!isMirror) {
+            clearTimeout(hotTimer[id]);
+            if (!isHot(id)) sendState(id);
+            else {
+              if (now() - (hotSent[id] || 0) >= HOT_EVERY) sendState(id);
+              hotTimer[id] = setTimeout(function () { sendState(id); }, HOT_QUIET);   // the resting value, once the animation ends
+            }
+          }
         }
       }
       return pair;
@@ -64,46 +92,70 @@
       });
     } catch (err) {}
   }
-  var pkPoll = setInterval(function () {
+  setInterval(function () {
     if (window.React && !window.React.__pkPatched) patchReact(window.React);
   }, 100);
 
-  /* ── room memo sync (figure histories kept in the Room store, outside React state) ──
-     presenter: every memo key is broadcast when it changes; mirror: applied with force. */
+  /* ── room memo + state sync (the Room store, outside React state) ──
+     presenter: a changed memo key goes out as a delta — appended array points, per-subkey for objects of
+     arrays, full value otherwise (structured clone, no JSON); mirror: applies, asks for a full copy on mismatch. */
   var roomStore = function () { return window.Room && window.Room.presenter ? window.Room.presenter() : null; };
-  var memoLast = {}, stateLast = {}, memoPending = {}, memoT = null;
+  var memoRef = {}, stateRef = {}, memoQueue = [], memoT = null;
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function diff(prev, next) {
+    if (prev === next) return null;
+    if (Array.isArray(next) && Array.isArray(prev) && next.length >= prev.length &&
+        (prev.length === 0 || (next[0] === prev[0] && next[prev.length - 1] === prev[prev.length - 1]))) {
+      return next.length === prev.length ? null : { base: prev.length, append: next.slice(prev.length) };
+    }
+    if (isObj(next) && isObj(prev)) {
+      var sub = {}, any = false;
+      Object.keys(next).forEach(function (k) { var d = diff(prev[k], next[k]); if (d) { sub[k] = d; any = true; } });
+      Object.keys(prev).forEach(function (k) { if (!(k in next)) { sub[k] = { del: true }; any = true; } });
+      return any ? { sub: sub } : null;
+    }
+    return { full: next };
+  }
+  function applyDiff(cur, d) {
+    if (d.del) return undefined;
+    if ('full' in d) return d.full;
+    if (d.append) {
+      if (cur === undefined && d.base === 0) cur = [];
+      if (!Array.isArray(cur) || cur.length !== d.base) throw new Error('memo drift');
+      return cur.concat(d.append);
+    }
+    if (d.sub) {
+      var o = {}; if (isObj(cur)) Object.keys(cur).forEach(function (k) { o[k] = cur[k]; });
+      Object.keys(d.sub).forEach(function (k) { var v = applyDiff(o[k], d.sub[k]); if (v === undefined) delete o[k]; else o[k] = v; });
+      return o;
+    }
+    return cur;
+  }
   function pushMemo(all) {
     var p = roomStore(); if (!p) return;
     var cur = p.get(), m = cur.memo || {}, st = cur.state || {};
     Object.keys(m).forEach(function (k) {
-      var j; try { j = JSON.stringify(m[k]); } catch (err) { return; }
-      if (j === undefined) return;
-      if (all || j !== memoLast[k]) { memoLast[k] = j; bc.postMessage({ pkMemo: k, json: j }); }
+      var d = all ? { full: m[k] } : diff(memoRef[k], m[k]);
+      memoRef[k] = m[k];
+      if (d) { try { bc.postMessage({ pkMemo: k, d: d }); } catch (err) { bc.postMessage({ pkMemo: k, d: { full: JSON.parse(JSON.stringify(m[k])) } }); } }
     });
-    Object.keys(memoLast).forEach(function (k) { if (!(k in m)) { delete memoLast[k]; bc.postMessage({ pkMemo: k, del: true }); } });
+    Object.keys(memoRef).forEach(function (k) { if (!(k in m)) { delete memoRef[k]; bc.postMessage({ pkMemo: k, d: { del: true } }); } });
     // the presenter's published room state (collect, round, scene …) goes over the same channel: immediate, no relay hop
     Object.keys(st).forEach(function (k) {
-      var j; try { j = JSON.stringify(st[k]); } catch (err) { return; }
-      if (j === undefined) return;
-      if (all || j !== stateLast[k]) { stateLast[k] = j; bc.postMessage({ pkRoom: k, json: j }); }
+      if (all || st[k] !== stateRef[k]) { stateRef[k] = st[k]; bc.postMessage({ pkRoom: k, v: st[k] }); }
     });
   }
-  function applyMemo(k, d) {
-    var p = roomStore(); if (!p) { memoPending[k] = d; return; }
-    if (d.pkRoom !== undefined) {
-      var sv; try { sv = JSON.parse(d.json); } catch (err) { return; }
-      var patch = {}; patch[k] = sv;
-      if (p.applyState) p.applyState(patch);
-      return;
-    }
-    if (d.del) return void p.setMemo(k, undefined, true);
-    var v; try { v = JSON.parse(d.json); } catch (err) { return; }
-    p.setMemo(k, v, true);
+  function applyMemo(d) {
+    var p = roomStore(); if (!p) { memoQueue.push(d); return; }
+    if (d.pkRoom !== undefined) { var patch = {}; patch[d.pkRoom] = d.v; if (p.applyState) p.applyState(patch); return; }
+    var k = d.pkMemo, m = p.get().memo || {};
+    try { p.setMemo(k, applyDiff(m[k], d.d), true); }
+    catch (err) { bc.postMessage({ needMemo: k }); }
   }
   var memoPoll = setInterval(function () {
     var p = roomStore(); if (!p) return;
     clearInterval(memoPoll);
-    if (isMirror) { Object.keys(memoPending).forEach(function (k) { applyMemo(k, memoPending[k]); }); memoPending = {}; return; }
+    if (isMirror) { var q = memoQueue; memoQueue = []; q.forEach(applyMemo); return; }
     p.subscribe(function () { if (memoT) return; memoT = setTimeout(function () { memoT = null; pushMemo(false); }, 30); });
     pushMemo(true);
   }, 100);
@@ -123,8 +175,7 @@
         if (registry[d.pkState]) applyJson(d.pkState, d.json);
         else pending[d.pkState] = d.json;
       }
-      if (typeof d.pkMemo === 'string') applyMemo(d.pkMemo, d);
-      if (typeof d.pkRoom === 'string') applyMemo(d.pkRoom, d);
+      if (typeof d.pkMemo === 'string' || typeof d.pkRoom === 'string') applyMemo(d);
       if (typeof d.index === 'number') { var s = stage(); if (s && s.goTo) s.goTo(d.index); }
       if (typeof d.scroll === 'number') window.scrollTo(0, d.scroll);
     });
@@ -134,10 +185,15 @@
   /* ── presenter window ── */
   var lastIndex = 0;
   bc.addEventListener('message', function (e) {
-    if (e.data && e.data.hello) {
+    var d = e.data || {};
+    if (d.hello) {
       Object.keys(cache).forEach(function (k) { bc.postMessage({ pkState: +k, json: cache[k] }); });
       pushMemo(true);
       if (stage()) bc.postMessage({ index: lastIndex });
+    }
+    if (typeof d.needMemo === 'string') {
+      var p = roomStore(), m = p && p.get().memo;
+      if (m && d.needMemo in m) { memoRef[d.needMemo] = m[d.needMemo]; bc.postMessage({ pkMemo: d.needMemo, d: { full: m[d.needMemo] } }); }
     }
   });
   var scrollT = null;

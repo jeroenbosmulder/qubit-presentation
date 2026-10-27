@@ -227,7 +227,7 @@ function FigFlipRoom() {
   // the replay opens paused (▶ / ❙❙); live flips keep arriving while the round is at rev 1
   const wrap = useRef(null);
   const flipEnter = useSlideEnter(wrap);
-  const { rev, playing, toggle } = useReplay(hist.length > 0, flipEnter, [sdMode, round]);
+  const { rev, playing, toggle } = useReplay(hist.length > 0, flipEnter, [sdMode, round], undefined, 2200, "flip:" + round + ":" + sdMode, "flip:" + round);
   const pkey = "phist:" + round;
   const phist = room.memo[pkey] || {};                // per participant: [[pooledN, ownFrac, ownN], …]
   // append a point whenever the pooled count changes (history survives slide changes: it lives in the store)
@@ -371,38 +371,47 @@ function FigFlipRoom() {
 
 // ───────────────────────── shared geometry (Bernoulli half-plane) ─────────────────────────
 /* p on x, bandwidth on y; the circle of radius ½ centred at (½, 0). */
-function Plane({ W = 900, H = 520, S = 640, cy: cyP, lower = 0, showBand = true, showArc = true, left = "always-T", right = "always-H", children }) {
+function Plane({ W = 900, H = 520, S = 640, cy: cyP, lower = 0, rise = 1, showBand = true, showArc = true, left = "always-T", right = "always-H", bold = false, children }) {
   const cx = W / 2, cy = cyP ?? H - 60;                   // px per unit p; origin p=½ at cx
   const X = (p) => cx + (p - 0.5) * S, Y = (w) => cy - w * S;
+  // rise ∈ 0…1: the upper half swings up out of the floor about the axis — the mirror of the unfold below; its rim is an ellipse that opens upward
+  const up = Math.sin((Math.PI / 2) * rise), ryUp = Math.max(0.01, (S / 2) * up);
   // lower ∈ 0…1: the hidden half swings open about the floor like a page — its rim is an ellipse that flattens, then opens downward
   const fold = Math.cos(Math.PI * lower), below = Math.max(0, -fold), ry = Math.max(0.01, (S / 2) * Math.abs(fold));
+  // bold: the twins' vocabulary (slides 28–30) — peach-filled disk, fat dashed gold rim (red below the fold), 3.5px ink diameter, 17px ink labels
+  const rimC = bold ? GOLD : INK, rimW = bold ? 4 : 1.75, rimD = bold ? "9 8" : "7 6", rimO = bold ? 1 : 0.6;
+  const axW = bold ? 3.5 : 2.25, bandW = bold ? 2.5 : 2.25, bandO = bold ? 0.8 : 0.5, lab = bold ? 17 : 15, tick = bold ? 15 : 14, tickC = bold ? INK : SOFT;
   return { X, Y, S, cx, cy, svg: (
     <svg viewBox={`0 0 ${W} ${H}`} style={svgStyle}>
-      <line x1={X(0)} y1={cy} x2={X(1)} y2={cy} stroke={INK} strokeWidth="2.25" strokeDasharray={lower > 0.02 ? "8 6" : undefined} opacity={1 - 0.45 * lower} />
+      {bold && showArc && <path d={`M ${X(0)} ${cy} A ${S / 2} ${ryUp.toFixed(2)} 0 0 1 ${X(1)} ${cy}${lower > 0 ? ` A ${S / 2} ${ry.toFixed(2)} 0 0 ${fold > 0 ? 0 : 1} ${X(0)} ${cy}` : " Z"}`} fill={PEACH} fillOpacity={0.35} stroke="none" />}
+      <line x1={X(0)} y1={cy} x2={X(1)} y2={cy} stroke={INK} strokeWidth={axW} strokeDasharray={lower > 0.02 ? "8 6" : undefined} opacity={1 - (bold ? 0.3 : 0.45) * lower} />
       <g opacity={1 - lower}>
-        <Txt x={X(0)} y={cy + 30} size={15} fill={INK} bold>{left}</Txt>
-        <Txt x={X(1)} y={cy + 30} size={15} fill={INK} bold>{right}</Txt>
-        <Txt x={X(0.5)} y={cy + 30} size={15}>fair · p = ½</Txt>
+        <Txt x={X(0)} y={cy + 30} size={lab} fill={INK} bold>{left}</Txt>
+        <Txt x={X(1)} y={cy + 30} size={lab} fill={INK} bold>{right}</Txt>
+        <Txt x={X(0.5)} y={cy + 30} size={lab} fill={tickC}>fair · p = ½</Txt>
       </g>
       {lower > 0 && <g opacity={lower}>
-        <Txt x={X(0) - 14} y={cy + 5} anchor="end" size={14} fill={INK} bold>{left}</Txt>
-        <Txt x={X(1) + 14} y={cy + 5} anchor="start" size={14} fill={INK} bold>{right}</Txt>
+        <Txt x={X(0) - 14} y={cy + 5} anchor="end" size={bold ? 15 : 14} fill={INK} bold>{left}</Txt>
+        <Txt x={X(1) + 14} y={cy + 5} anchor="start" size={bold ? 15 : 14} fill={INK} bold>{right}</Txt>
         <line x1={X(0.5)} y1={cy - 5} x2={X(0.5)} y2={cy + 5} stroke={INK} strokeWidth="1.5" />
       </g>}
       {showBand && <>
-        <line x1={X(0)} y1={cy} x2={X(0)} y2={Y(0.6)} stroke={INK} strokeWidth="2.25" opacity="0.5" />
-        <Txt x={X(0) - 14} y={Y(0.5) + 6} anchor="end" size={14}>½</Txt>
-        <Txt x={X(0) - 14} y={Y(0.25) + 6} anchor="end" size={14}>¼</Txt>
-        <g opacity={1 - lower}><Txt x={X(0.5)} y={Y(0.6) - 14} size={15}>bandwidth — the spread you expect</Txt></g>
-        {lower > 0 && <g opacity={lower}><Txt x={X(0) + 10} y={Y(0.6) - 10} anchor="start" size={14}>bandwidth</Txt></g>}
+        <line x1={X(0)} y1={cy} x2={X(0)} y2={Y(0.6 * up)} stroke={INK} strokeWidth={bandW} opacity={bandO} />
+        <g opacity={up}>
+          <Txt x={X(0) - 14} y={Y(0.5 * up) + 6} anchor="end" size={tick} fill={tickC}>½</Txt>
+          <Txt x={X(0) - 14} y={Y(0.25 * up) + 6} anchor="end" size={tick} fill={tickC}>¼</Txt>
+        </g>
+        <g opacity={(1 - lower) * Math.max(0, up * 2 - 1)}><Txt x={X(0.5)} y={Y(0.6) - 14} size={lab} fill={tickC}>bandwidth — the spread you expect</Txt></g>
+        {lower > 0 && <g opacity={lower}><Txt x={X(0) + 10} y={Y(0.6) - 10} anchor="start" size={tick} fill={tickC}>bandwidth</Txt></g>}
       </>}
       {showBand && below > 0 && <g opacity={below}>
-        <line x1={X(0)} y1={cy} x2={X(0)} y2={Y(-0.6)} stroke={INK} strokeWidth="2.25" opacity="0.5" />
-        <Txt x={X(0) - 14} y={Y(-0.5) + 6} anchor="end" size={14}>−½</Txt>
-        <Txt x={X(0) - 14} y={Y(-0.25) + 6} anchor="end" size={14}>−¼</Txt>
+        <line x1={X(0)} y1={cy} x2={X(0)} y2={Y(-0.6)} stroke={INK} strokeWidth={bandW} opacity={bandO} />
+        <Txt x={X(0) - 14} y={Y(-0.5) + 6} anchor="end" size={tick} fill={tickC}>−½</Txt>
+        <Txt x={X(0) - 14} y={Y(-0.25) + 6} anchor="end" size={tick} fill={tickC}>−¼</Txt>
       </g>}
-      {showArc && <path d={`M ${X(0)} ${cy} A ${S / 2} ${S / 2} 0 0 1 ${X(1)} ${cy}`} fill="none" stroke={INK} strokeWidth="1.75" strokeDasharray="7 6" opacity="0.6" />}
-      {showArc && lower > 0 && <path d={`M ${X(0)} ${cy} A ${S / 2} ${ry.toFixed(2)} 0 0 ${fold > 0 ? 1 : 0} ${X(1)} ${cy}`} fill="none" stroke={INK} strokeWidth="1.75" strokeDasharray="7 6" opacity={0.6 * Math.min(1, lower * 4)} />}
+      {showArc && <path d={`M ${X(0)} ${cy} A ${S / 2} ${ryUp.toFixed(2)} 0 0 1 ${X(1)} ${cy}`} fill="none" stroke={rimC} strokeWidth={rimW} strokeDasharray={rimD} opacity={rimO} />}
+      {showArc && lower > 0 && <path d={`M ${X(0)} ${cy} A ${S / 2} ${ry.toFixed(2)} 0 0 ${fold > 0 ? 1 : 0} ${X(1)} ${cy}`} fill="none" stroke={bold ? (fold > 0 ? GOLD : RED) : INK} strokeWidth={rimW} strokeDasharray={rimD} opacity={rimO * Math.min(1, lower * 4)} />}
+      {bold && <g><circle cx={X(0)} cy={cy} r={9} fill={INK} /><circle cx={X(1)} cy={cy} r={9} fill={INK} /></g>}
       {children({ X, Y, S, cx, cy })}
     </svg>
   ) };
@@ -466,13 +475,24 @@ function FigHalfPlaneRoom() {
   const RS = ["A", "B", "C"].filter(on);
   const D = { A: phoneDots(room.tallies("A")), B: phoneDots(room.tallies("B")), C: phoneDots(room.tallies("C")) };
   const P = { A: pooled(D.A), B: pooled(D.B), C: pooled(D.C) };
-  const plane = Plane({ showBand, showArc: showBand, children: ({ X, Y }) => (<>
+  // the aha: the half-circle swings up out of the axis (0 flat … 1 upright), every dot riding its own height — the mirror of the unfold on the later slides.
+  // On revisit with the axis already on it starts upright: no replay.
+  const [rise, setRise] = useState(showBand ? 1 : 0);
+  const riseRef = useRef(rise); riseRef.current = rise;
+  useEffect(() => {
+    const to = showBand ? 1 : 0, from = riseRef.current; if (from === to) return;
+    const t0 = performance.now(), dur = showBand ? 1500 : 500; let raf;
+    const step = (t) => { const u = Math.min(1, (t - t0) / dur), e = u * u * (3 - 2 * u); setRise(from + (to - from) * e); if (u < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step); return () => cancelAnimationFrame(raf);
+  }, [showBand]);
+  const up = Math.sin((Math.PI / 2) * rise), full = showBand && rise >= 1;
+  const plane = Plane({ showBand: showBand || rise > 0, showArc: showBand || rise > 0, rise, bold: true, children: ({ X, Y }) => (<>
     {RS.map((r) => D[r].map((d) => (<g key={r + d.slot}>
-      <circle cx={X(d.p)} cy={showBand ? Y(d.w) : Y(0)} r="9" fill={ROUND[r].col} opacity="0.7" stroke="#FFFFFF" strokeWidth={1.5} />
-      {r === "C" && <text x={X(d.p)} y={(showBand ? Y(d.w) : Y(0)) - 14} textAnchor="middle" fontSize="16">{d.tag}</text>}
-      {r === "C" && reveal && showBand && (() => { const b = Room.secrets(d.slot).bias; return <circle cx={X(b)} cy={Y(sig(b))} r="7" fill="none" stroke={GOLD} strokeWidth="1.75" strokeDasharray="3 3" />; })()}
+      <circle cx={X(d.p)} cy={Y(d.w * up)} r="9" fill={ROUND[r].col} opacity="0.7" stroke="#FFFFFF" strokeWidth={1.5} />
+      {r === "C" && <text x={X(d.p)} y={Y(d.w * up) - 14} textAnchor="middle" fontSize="16">{d.tag}</text>}
+      {r === "C" && reveal && full && (() => { const b = Room.secrets(d.slot).bias; return <circle cx={X(b)} cy={Y(sig(b))} r="7" fill="none" stroke={GOLD} strokeWidth="1.75" strokeDasharray="3 3" />; })()}
     </g>)))}
-    {showPooled && showBand && RS.map((r) => P[r] && (<g key={"p" + r}>
+    {showPooled && full && RS.map((r) => P[r] && (<g key={"p" + r}>
       {D[r].map((d) => <line key={"m" + d.slot} x1={X(d.p)} y1={Y(d.w)} x2={X(P[r].p)} y2={Y(P[r].w)} stroke={ROUND[r].col} strokeWidth="1.25" strokeDasharray="4 5" opacity="0.35" />)}
       <circle cx={X(P[r].p)} cy={Y(P[r].w)} r="15" fill={ROUND[r].col} stroke="#FFFFFF" strokeWidth={2.25} />
       <Txt x={X(P[r].p)} y={Y(P[r].w) + (r === "A" ? -24 : r === "B" ? 40 : 34)} size={15} fill={INK} bold>{`room, ${ROUND[r].name}`}</Txt>
@@ -497,11 +517,29 @@ function FigArcRoom() {
   const room = Room.usePresenter();
   const p = room.state.p ?? 0.5;
   const B = phoneDots(room.tallies("C"));
-  const plane = Plane({ children: ({ X, Y, cx, cy }) => (<>
+  // drag the state along the arc — same gesture as the needle slide
+  const onDown = (cx, cy) => (e) => {
+    const svg = e.currentTarget.ownerSVGElement || e.currentTarget.closest("svg");
+    const move = (ev) => {
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+      const x = (ev.clientX - r.left) * vb.width / r.width, y = (ev.clientY - r.top) * vb.height / r.height;
+      const ang = Math.atan2(cy - y, x - cx);
+      const q = Math.min(1, Math.max(0, 0.5 + 0.5 * Math.cos(Math.min(Math.PI, Math.max(0, ang)))));
+      room.publish({ p: Math.round(q * 100) / 100 });
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); swallowClick(); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); e.preventDefault();
+  };
+  const plane = Plane({ bold: true, children: ({ X, Y, cx, cy }) => (<>
     {B.map((d) => <circle key={d.slot} cx={X(d.p)} cy={Y(d.w)} r="7" fill={GOLD} opacity="0.25" />)}
-    <path d={`M ${X(0)} ${cy} A ${320} ${320} 0 0 1 ${X(1)} ${cy}`} fill="none" stroke={INK} strokeWidth="3" />
-    <line x1={X(p)} y1={cy} x2={X(p)} y2={Y(sig(p))} stroke={PURP} strokeWidth="1.5" strokeDasharray="5 4" />
-    <circle cx={X(p)} cy={Y(sig(p))} r="13" fill={PURP} stroke="#FFFFFF" strokeWidth={2.25} />
+    <circle cx={cx} cy={cy} r={5} fill={INK} />
+    {/* the pointer: from the centre of the Bernoulli circle to the state */}
+    <defs><marker id="arrowPurpArc" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,1.2 L9,5 L0,8.8 L2.4,5 z" fill={PURP} /></marker></defs>
+    {(() => { const dx = X(p) - cx, dy = Y(sig(p)) - cy, L = Math.hypot(dx, dy) || 1, k = (L - 16) / L; return <line x1={cx} y1={cy} x2={cx + dx * k} y2={cy + dy * k} stroke={PURP} strokeWidth="3" markerEnd="url(#arrowPurpArc)" />; })()}
+    <g style={{ cursor: "grab" }} onPointerDown={onDown(cx, cy)}>
+      <circle cx={X(p)} cy={Y(sig(p))} r={26} fill="rgba(0,0,0,0)" />
+      <circle cx={X(p)} cy={Y(sig(p))} r="13" fill={PURP} stroke="#FFFFFF" strokeWidth={2.25} />
+    </g>
     <Txt x={X(p)} y={Y(sig(p)) - 24} size={14} fill={INK} bold>{`p = ${p.toFixed(2)} · bandwidth ${sig(p).toFixed(2)}`}</Txt>
   </>) });
   return (
@@ -522,8 +560,8 @@ function FigNeedleRoom() {
   const show = !!room.state.halfCircle;
   const th = Math.atan2(Math.sqrt(1 - p), Math.sqrt(p));            // angle at the coin between pointer and blue chord; cos θ = √p
   const deg = (r) => (r * 180 / Math.PI).toFixed(0);
-  // geometry: diameter 600 px, so ½ ↦ 300 px
-  const cx = 450, cy = 420, R = 300;
+  // geometry: diameter 640 px (the Plane's), so ½ ↦ 320 px
+  const cx = 450, cy = 460, R = 320;
   const X = (q) => cx + (q - 0.5) * 2 * R, Y = (w) => cy - w * 2 * R;
   const Tx = X(0), Hx = X(1), Px = X(p), Py = Y(sig(p));
   const near = (a, b) => Math.abs(a - b) < 0.02;
@@ -551,11 +589,11 @@ function FigNeedleRoom() {
   const uT = [(Tx - Px) / lenT, (cy - Py) / lenT], uH = [(Hx - Px) / lenH, (cy - Py) / lenH], m = 16;
   const sq = `M ${Px + uT[0] * m} ${Py + uT[1] * m} L ${Px + (uT[0] + uH[0]) * m} ${Py + (uT[1] + uH[1]) * m} L ${Px + uH[0] * m} ${Py + uH[1] * m}`;
   // inset: the coin's own frame — blue (toward T′) horizontal, orange (toward H′) vertical, needle at θ
-  const I = { x: 700, y: 4, w: 196, h: 196, ox: 742, oy: 154, S: 110 };
+  const I = { x: 699, y: -2, w: 196, h: 196, ox: 741, oy: 148, S: 110 };
   const nx = I.ox + I.S * Math.cos(th), ny = I.oy - I.S * Math.sin(th);
   return (
     <div>
-      <svg viewBox="0 0 900 520" style={svgStyle}>
+      <svg viewBox="0 0 900 520" style={{ ...svgStyle, overflow: "visible" }}>
         {/* axes */}
         <line x1={Tx} y1={cy} x2={Hx + 60} y2={cy} stroke={INK} strokeWidth="2.25" />
         <line x1={Tx} y1={cy} x2={Tx} y2={80} stroke={INK} strokeWidth="1.75" />
@@ -564,9 +602,10 @@ function FigNeedleRoom() {
         <Txt x={Tx} y={cy + 32} size={14}>always T (p=0)</Txt>
         <Txt x={Hx} y={cy + 32} size={14}>always H (p=1)</Txt>
         {/* the Bernoulli circle */}
-        <path d={`M ${Tx} ${cy} A ${R} ${R} 0 0 1 ${Hx} ${cy}`} fill="none" stroke={GOLD} strokeWidth={2.5} strokeDasharray="7 7" />
+        <path d={`M ${Tx} ${cy} A ${R} ${R} 0 0 1 ${Hx} ${cy} Z`} fill={PEACH} fillOpacity={0.35} stroke="none" />
+        <path d={`M ${Tx} ${cy} A ${R} ${R} 0 0 1 ${Hx} ${cy}`} fill="none" stroke={GOLD} strokeWidth={4} strokeDasharray="9 8" />
         <circle cx={Tx} cy={cy} r={6} fill={INK} /><circle cx={Hx} cy={cy} r={6} fill={INK} />
-        <circle cx={cx} cy={cy} r={5} fill={SOFT} />
+        <circle cx={cx} cy={cy} r={5} fill={INK} />
         {/* chords and pointer */}
         <line x1={Tx} y1={cy} x2={Px} y2={Py} stroke={TEAL} strokeWidth="3" />
         <line x1={Hx} y1={cy} x2={Px} y2={Py} stroke={GOLD} strokeWidth="3" />
@@ -588,14 +627,14 @@ function FigNeedleRoom() {
           <circle cx={H2[0]} cy={H2[1]} r="8" fill={PURP} /><Txt x={H2[0] + 14} y={H2[1] + 28} size={15} fill={PURP} bold>H′</Txt>
           {/* inset */}
           <rect x={I.x} y={I.y} width={I.w} height={I.h} rx={8} fill="#FFFFFF" stroke={LBLUE} strokeWidth="1.5" />
-          <Txt x={I.x + 12} y={I.y + I.h - 12} anchor="start" size={12}>the needle, at θ</Txt>
+          <Txt x={I.x + I.w / 2} y={I.y + I.h - 12} size={12}>the needle</Txt>
           <line x1={I.ox} y1={I.oy} x2={I.ox + I.S + 26} y2={I.oy} stroke={TEAL} strokeWidth="2.25" />
           <line x1={I.ox} y1={I.oy} x2={I.ox} y2={I.oy - I.S - 26} stroke={GOLD} strokeWidth="2.25" />
           <circle cx={I.ox + I.S} cy={I.oy} r="5" fill={INK} /><Txt x={I.ox + I.S + 4} y={I.oy + 20} size={13} fill={INK} bold>T′</Txt>
           <circle cx={I.ox} cy={I.oy - I.S} r="5" fill={INK} /><Txt x={I.ox - 16} y={I.oy - I.S + 5} anchor="end" size={13} fill={INK} bold>H′</Txt>
           <path d={`M ${I.ox + I.S} ${I.oy} A ${I.S} ${I.S} 0 0 0 ${I.ox} ${I.oy - I.S}`} fill="none" stroke={SOFT} strokeWidth="1.5" strokeDasharray="5 4" />
           <path d={`M ${I.ox + 40} ${I.oy} A 40 40 0 0 0 ${I.ox + 40 * Math.cos(th)} ${I.oy - 40 * Math.sin(th)}`} fill="none" stroke={RED} strokeWidth="1.5" />
-          <Txt x={I.ox + 58 * Math.cos(th / 2) + 8} y={I.oy - 58 * Math.sin(th / 2) + 5} anchor="start" size={13} fill={RED} bold>{`${deg(th)}°`}</Txt>
+          <Txt x={I.ox + 58 * Math.cos(th / 2) + 8} y={I.oy - 58 * Math.sin(th / 2) + 5} anchor="start" size={13} fill={RED} bold>{`θ = ${deg(th)}°`}</Txt>
           <line x1={I.ox} y1={I.oy} x2={nx} y2={ny} stroke={PURP} strokeWidth="3" markerEnd="url(#arrowPurp)" />
         </>}
         {/* the coin */}
@@ -604,7 +643,7 @@ function FigNeedleRoom() {
           <circle cx={Px} cy={Py} r={13} fill={GOLD} stroke="#FFFFFF" strokeWidth={2.5} />
         </g>
         <Txt x={Px + (p > 0.6 ? -26 : 26)} y={Py - 22} anchor={p > 0.6 ? "end" : "start"} size={16} fill={TEAL} bold>{near(p, 0.5) ? "fair coin (½, ½)" : `your coin (${p.toFixed(2)}, ${sig(p).toFixed(2)})`}</Txt>
-                <Txt x={cx} y={cy + 66} size={14}>{`(p − ½)² + bandwidth² = ¼ · drag the coin`}</Txt>
+                <Txt x={cx} y={cy + 52} size={14}>{`(p − ½)² + bandwidth² = ¼ · drag the coin`}</Txt>
       </svg>
       <div style={{ display: "flex", gap: 14, alignItems: "center", justifyContent: "center", marginTop: 6 }}>
         <Button active={show} ghost={!show} onClick={() => room.publish({ halfCircle: !show }, true)}>{show ? "hide the ½-circle" : "circle of radius ½ around your coin"}</Button>
@@ -831,8 +870,11 @@ function FigLensRoom() {
 function FigTwoSheets3D() {
   const room = Room.usePresenter();
   const a1 = room.state.lens1 ?? 0, a2 = room.state.lens2 ?? 90;
-  const view = ["side view", "3D"].includes(room.state.waveView) ? room.state.waveView : "3D";   // shared with the next slide
+  const view = ["side view", "3D"].includes(room.state.waveView) ? room.state.waveView : "side view";   // shared with the next slide
   const [st, setSt] = useState({ run: true, yaw: 64, pitch: 16 });
+  const benchRun = room.state.benchRun ?? true;                                                       // play / pause shared across the scene-7 bench slides
+  useEffect(() => { setSt((s) => (s.run === benchRun ? s : { ...s, run: benchRun })); }, [benchRun]);
+  const toggleRun = () => room.publish({ benchRun: !benchRun }, true);
   const first = useRef(true);
   useEffect(() => { if (first.current) { first.current = false; const T = { "side view": { yaw: 90, pitch: 22 }, "3D": { yaw: 64, pitch: 16 }, "down the axis": { yaw: 0, pitch: 0 } }[view]; setSt((s) => ({ ...s, ...T })); return; } tgt.current = { "side view": { yaw: 90, pitch: 22 }, "3D": { yaw: 64, pitch: 16 }, "down the axis": { yaw: 0, pitch: 0 } }[view]; }, [view]);
   const [t, setT] = useState(0);
@@ -855,7 +897,7 @@ function FigTwoSheets3D() {
   }, []);
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const onDown = (e) => { if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); tgt.current = null; drag.current = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; };
-  const onMove = (e) => { if (!drag.current) return; const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y; setSt((s) => ({ ...s, yaw: cl(drag.current.yaw - dx * 0.35, 10, 100), pitch: cl(drag.current.pitch + dy * 0.35, -22, 22) })); };
+  const onMove = (e) => { const d0 = drag.current; if (!d0) return; const dx = e.clientX - d0.x, dy = e.clientY - d0.y; setSt((s) => ({ ...s, yaw: cl(d0.yaw - dx * 0.35, 10, 100), pitch: cl(d0.pitch + dy * 0.35, -22, 22) })); };
   const onUp = (e) => { if (drag.current && e && Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) > 2) swallowClick(); drag.current = null; };
   const c12 = Math.cos((a2 - a1) * DEG);
   const I0 = 1, I1 = 0.5, I2 = I1 * c12 * c12;                       // what the detector would read after the lamp · sheet 1 · sheet 2
@@ -877,7 +919,7 @@ function FigTwoSheets3D() {
   // grains of light riding the beam: each carries a fixed lot; a sheet lets a grain through only if its lot is under the fraction that passes
   const ND = 64, rnd = (k, m) => { const x = Math.sin(k * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); };
   const grains = Array.from({ length: ND }, (_, k) => {
-    const z = -L + ((k / ND + t * 0.55) % 1) * 2 * L;
+    const z = -L + ((k / ND + t * 0.045) % 1) * 2 * L;
     const lot = rnd(k, 1), ox = (rnd(k, 2) - 0.5) * 0.34, oy = (rnd(k, 3) - 0.5) * 0.34;
     if (lot >= Iat(z)) return null;
     const q = proj(ox, oy, z);
@@ -928,10 +970,10 @@ function FigTwoSheets3D() {
         <input type="range" min="0" max="180" step="1" value={a2} onChange={(e) => room.publish({ lens2: +e.target.value })} style={{ width: "100%", accentColor: INK, marginTop: 2 }} />
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 6 }}>
-        <Button ghost onClick={() => setSt((s) => ({ ...s, run: !s.run }))}>{st.run ? "❙❙" : "▶"}</Button>
+        <Button ghost onClick={toggleRun}>{st.run ? "❙❙" : "▶"}</Button>
         <Menu label={"sheet 1 · " + name(a1)} value={a1} items={[[0, "horizontal"], [90, "vertical"]]} onPick={(g) => room.publish({ lens1: g }, true)} />
         <Menu label={"sheet 2 · " + name(a2)} value={a2} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => room.publish({ lens2: g }, true)} />
-        <Menu label={"light · " + ((room.state.lightMode ?? "wave") === "beam" ? "beam" : "wave")} value={room.state.lightMode ?? "wave"} items={[["beam", "beam of light"], ["wave", "the wave (next slide)"]]} onPick={(v) => room.publish({ lightMode: v }, true)} />
+        <Menu label={"light · " + ((room.state.lightMode ?? "beam") === "beam" ? "beam" : "wave")} value={room.state.lightMode ?? "beam"} items={[["beam", "beam of light"], ["wave", "the wave (next slide)"]]} onPick={(v) => room.publish({ lightMode: v }, true)} />
         <Menu label={"view · " + view} value={view} items={[["side view", "side view"], ["3D", "3D view"]]} onPick={(v) => room.publish({ waveView: v }, true)} />
       </div>
     </div>
@@ -1040,9 +1082,9 @@ function FigLightRound({ phi: phiProp, ghost, pick, pickSheet: pickSheetProp, re
   }, [LR.n, LR.passed, round, hk]);
   // replay of the paths on entry and on demand — same choreography as scene 2
   const wrap = useRef(null);
-  const enter = useSlideEnter(wrap, () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = "hidden"; });
+  const enter = useSlideEnter(wrap, (now) => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = now ? "" : "hidden"; });
   // recap: no replay — the final pointers only
-  const { rev, playing, toggle } = useReplay(hist.length > 0 && !recapOn, enter, [round], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; });
+  const { rev, playing, toggle } = useReplay(hist.length > 0 && !recapOn, enter, [round, hk], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; }, 2200, "light:" + hk, "light:" + round);
   const live = rev >= 1;
   const vis = live ? hist : hist.slice(0, Math.ceil(rev * hist.length));
   const cutN = live ? LR.n : (vis.length ? vis[vis.length - 1][0] : 0);
@@ -1124,7 +1166,7 @@ function FigLightRound({ phi: phiProp, ghost, pick, pickSheet: pickSheetProp, re
     const ro = new ResizeObserver(fit); ro.observe(svg); ro.observe(panel);
     return () => ro.disconnect();
   }, [unf]);
-  const plane = Plane({ H: Hg, S: Sg, cy: cyg, lower: unf, showBand: true, showArc: true, left: "no click · p = 0", right: "click · p = 1", children: ({ X, Y }) => (<>
+  const plane = Plane({ H: Hg, S: Sg, cy: cyg, lower: unf, showBand: true, showArc: true, bold: true, left: "no click · p = 0", right: "click · p = 1", children: ({ X, Y }) => (<>
     {/* bench, top right: the beam's own tilt, the sheet — and the needle between them, θ = beam − sheet */}
     {(() => {
       const BX = 596, SX = 722, NX = 848, KY = 34, R = 26;
@@ -1186,31 +1228,31 @@ function FigLightRound({ phi: phiProp, ghost, pick, pickSheet: pickSheetProp, re
         {sheetPick && !recapOn && openMenu === "sheet" && menu(SX, INK, "#F2F6FB", [...SHEETS, "compare"], cmpOn ? "compare" : phi, pickSheet)}
       </g>);
     })()}
-    {pth2 !== null && <circle cx={X(pth2)} cy={Y(uy(sig(pth2), sgM2))} r={9} fill="none" stroke={col} strokeWidth="2" strokeDasharray="3 3" opacity={0.6} />}
+    {pth2 !== null && <circle cx={X(pth2)} cy={Y(uy(sig(pth2), sgM2))} r={11} fill="none" stroke={col} strokeWidth="3" strokeDasharray="4 3" opacity={0.6} />}
     {pth !== null && <g>
-      <circle cx={X(pth)} cy={Y(uy(sig(pth), sgM))} r={9} fill="none" stroke={col} strokeWidth="2" strokeDasharray="3 3" />
-      {(!pool || Math.abs(pool.p - pth) > 0.08) && <Txt x={pth > 0.5 ? X(pth) - 16 : X(pth) + 16} y={Y(uy(sig(pth), sgM)) - 16} anchor={pth > 0.5 ? "end" : "start"} size={13} fill={col}>{`Malus · cos²(${phi}° − ${beta}°) = ${pth.toFixed(2)}`}</Txt>}
+      <circle cx={X(pth)} cy={Y(uy(sig(pth), sgM))} r={11} fill="none" stroke={col} strokeWidth="3" strokeDasharray="4 3" />
+      {(!pool || Math.abs(pool.p - pth) > 0.08) && <Txt x={pth > 0.5 ? X(pth) - 18 : X(pth) + 18} y={Y(uy(sig(pth), sgM)) - 18} anchor={pth > 0.5 ? "end" : "start"} size={15} fill={col} bold>{`Malus · cos²(${phi}° − ${beta}°) = ${pth.toFixed(2)}`}</Txt>}
     </g>}
     {revealed && secret && <g>
-      <line x1={X(0.5)} y1={Y(0)} x2={X(secret.p)} y2={Y(secret.w)} stroke={col} strokeWidth={2} strokeDasharray="4 4" />
-      <circle cx={X(secret.p)} cy={Y(secret.w)} r={10} fill="none" stroke={col} strokeWidth="2" strokeDasharray="3 3" />
-      <line x1={X(secret.p) - 15} y1={Y(secret.w)} x2={X(secret.p) + 15} y2={Y(secret.w)} stroke={col} strokeWidth={1.5} />
-      <line x1={X(secret.p)} y1={Y(secret.w) - 15} x2={X(secret.p)} y2={Y(secret.w) + 15} stroke={col} strokeWidth={1.5} />
-      <Txt x={X(secret.p) + (secret.near ? 22 : secret.p > 0.5 ? -20 : 20)} y={Y(secret.w) + (secret.near ? -40 : secret.w >= 0 ? 32 : -24)} anchor={secret.near ? "start" : secret.p > 0.5 ? "end" : "start"} size={14} fill={col} bold>{`the room's beam · ${Math.round(secret.thAbs)}° · ${Math.round(secret.len * 100)}% pure`}</Txt>
+      <line x1={X(0.5)} y1={Y(0)} x2={X(secret.p)} y2={Y(secret.w)} stroke={col} strokeWidth={3} strokeDasharray="6 5" />
+      <circle cx={X(secret.p)} cy={Y(secret.w)} r={12} fill="none" stroke={col} strokeWidth="3" strokeDasharray="4 3" />
+      <line x1={X(secret.p) - 17} y1={Y(secret.w)} x2={X(secret.p) + 17} y2={Y(secret.w)} stroke={col} strokeWidth={2} />
+      <line x1={X(secret.p)} y1={Y(secret.w) - 17} x2={X(secret.p)} y2={Y(secret.w) + 17} stroke={col} strokeWidth={2} />
+      <Txt x={X(secret.p) + (secret.near ? 24 : secret.p > 0.5 ? -22 : 22)} y={Y(secret.w) + (secret.near ? -42 : secret.w >= 0 ? 34 : -26)} anchor={secret.near ? "start" : secret.p > 0.5 ? "end" : "start"} size={16} fill={col} bold>{`the room's beam · ${Math.round(secret.thAbs)}° · ${Math.round(secret.len * 100)}% pure`}</Txt>
     </g>}
-    {G && G.phones.map((g) => <circle key={"g" + g.from} cx={X(g.frac)} cy={Y(uy(sig(g.frac), sgnOf(g.slot, 0)))} r={7} fill="none" stroke={col} strokeWidth={1.5} strokeDasharray="3 2" opacity="0.3" />)}
-    {G && G.n > 0 && <g opacity="0.4"><circle cx={X(G.frac)} cy={Y(gW)} r={11} fill="none" stroke={col} strokeWidth={2} strokeDasharray="4 3" /><Txt x={X(G.frac)} y={Y(gW) - 18} size={12} fill={col}>room · 0° sheet</Txt></g>}
+    {G && G.phones.map((g) => <circle key={"g" + g.from} cx={X(g.frac)} cy={Y(uy(sig(g.frac), sgnOf(g.slot, 0)))} r={8} fill="none" stroke={col} strokeWidth={2} strokeDasharray="3 2" opacity="0.35" />)}
+    {G && G.n > 0 && <g opacity="0.5"><circle cx={X(G.frac)} cy={Y(gW)} r={12} fill="none" stroke={col} strokeWidth={3} strokeDasharray="4 3" /><Txt x={X(G.frac)} y={Y(gW) - 20} size={14} fill={col} bold>room · 0° sheet</Txt></g>}
     {/* compare: the other sheet's room — dashed path, dashed pointer, hollow room dot (no seats) */}
     {LR2 && live && <g>
-      {trail2.length > 1 && <polyline points={trail2.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd2(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke="#FFFFFF" strokeWidth="6" opacity="0.9" strokeLinejoin="round" strokeLinecap="round" />}
-      {trail2.length > 1 && <polyline points={trail2.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd2(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="2.5" strokeDasharray="7 6" strokeLinejoin="round" strokeLinecap="round" />}
-      {defined2 && <line x1={X(0.5)} y1={Y(0)} x2={X(pool2.p)} y2={Y(pool2.w)} stroke={GOLD} strokeWidth={2.5} strokeLinecap="round" strokeDasharray="7 6" opacity={0.85} />}
-      {pool2 && <circle cx={X(pool2.p)} cy={Y(pool2.w)} r="12" fill="#FFFFFF" stroke={col} strokeWidth={3} />}
-      {pool2 && <Txt x={X(pool2.p)} y={Y(pool2.w) + (pool2.w >= 0 || unf < 0.5 ? -20 : 32)} size={14} fill={INK} bold>{`room · ${other}° sheet`}</Txt>}
-      {!pool2 && <Txt x={X(0.5)} y={Y(0.42)} size={14} fill={SOFT}>{`no photons through the ${other}° sheet yet`}</Txt>}
+      {trail2.length > 1 && <polyline points={trail2.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd2(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke="#FFFFFF" strokeWidth="8" opacity="0.9" strokeLinejoin="round" strokeLinecap="round" />}
+      {trail2.length > 1 && <polyline points={trail2.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd2(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="3.5" strokeDasharray="8 6" strokeLinejoin="round" strokeLinecap="round" />}
+      {defined2 && <line x1={X(0.5)} y1={Y(0)} x2={X(pool2.p)} y2={Y(pool2.w)} stroke={GOLD} strokeWidth={3} strokeLinecap="round" strokeDasharray="7 6" />}
+      {pool2 && <circle cx={X(pool2.p)} cy={Y(pool2.w)} r="13" fill="#FFFFFF" stroke={col} strokeWidth={3.5} />}
+      {pool2 && <Txt x={X(pool2.p)} y={Y(pool2.w) + (pool2.w >= 0 || unf < 0.5 ? -22 : 34)} size={17} fill={INK} bold>{`room · ${other}° sheet`}</Txt>}
+      {!pool2 && <Txt x={X(0.5)} y={Y(0.42)} size={16} fill={INK}>{`no photons through the ${other}° sheet yet`}</Txt>}
       {defined && defined2 && Math.abs(twoTh2 - twoTh) > 2 && <g>
-        <path d={arcBetween(X(0.5), Y(0), 56, twoTh, twoTh2)} fill="none" stroke={GOLD} strokeWidth={2.5} />
-        {!turning && <Txt x={X(0.5) + 80 * Math.cos((twoTh + twoTh2) / 2 * DEG)} y={Y(0) - 80 * Math.sin((twoTh + twoTh2) / 2 * DEG) + 5} size={14} fill={GOLD} bold>{`${Math.round(Math.abs(twoTh2 - twoTh))}°`}</Txt>}
+        <path d={arcBetween(X(0.5), Y(0), 56, twoTh, twoTh2)} fill="none" stroke={GOLD} strokeWidth={3.5} />
+        {!turning && <Txt x={X(0.5) + 80 * Math.cos((twoTh + twoTh2) / 2 * DEG)} y={Y(0) - 80 * Math.sin((twoTh + twoTh2) / 2 * DEG) + 5} size={16} fill={GOLD} bold>{`${Math.round(Math.abs(twoTh2 - twoTh))}°`}</Txt>}
       </g>}
     </g>}
     {/* recap: the 0° room, turned 2α clockwise as the sheet turns α — path, pointer and dot as a lighter copy, the turned angle at the centre */}
@@ -1220,34 +1262,34 @@ function FigLightRound({ phi: phiProp, ghost, pick, pickSheet: pickSheetProp, re
       const [gx, gy] = rot(pool.p - 0.5, pool.w);
       const a2 = twoTh - 2 * al, am = (twoTh + a2) / 2 * DEG;
       return (<g>
-        <line x1={X(0.5)} y1={Y(0)} x2={X(0.5 + gx)} y2={Y(gy)} stroke={GOLD} strokeWidth={3.5} strokeLinecap="round" />
-        <circle cx={X(0.5 + gx)} cy={Y(gy)} r="12" fill={col} stroke="#FFFFFF" strokeWidth={2.25} opacity={0.6} />
-        <path d={arcBetween(X(0.5), Y(0), 56, twoTh, a2)} fill="none" stroke={GOLD} strokeWidth={5} strokeLinecap="round" />
-        <Txt x={X(0.5) + 84 * Math.cos(am)} y={Y(0) - 84 * Math.sin(am) + 5} size={14} fill={GOLD} bold>{`${Math.round(2 * al)}°`}</Txt>
+        <line x1={X(0.5)} y1={Y(0)} x2={X(0.5 + gx)} y2={Y(gy)} stroke={GOLD} strokeWidth={4} strokeLinecap="round" />
+        <circle cx={X(0.5 + gx)} cy={Y(gy)} r="13" fill={col} stroke="#FFFFFF" strokeWidth={3} opacity={0.6} />
+        <path d={arcBetween(X(0.5), Y(0), 56, twoTh, a2)} fill="none" stroke={GOLD} strokeWidth={5.5} strokeLinecap="round" />
+        <Txt x={X(0.5) + 84 * Math.cos(am)} y={Y(0) - 84 * Math.sin(am) + 5} size={16} fill={GOLD} bold>{`${Math.round(2 * al)}°`}</Txt>
       </g>);
     })()}
     {/* every beam's own path: (own fraction, own bandwidth) as its photons arrive */}
     {!cmpOn && LR.phones.map((p) => {
       const ph = (phist[p.from] || []).filter((h) => h[2] >= 2 && h[0] <= cutN);
-      return ph.length > 1 && <polyline key={"t" + p.from} points={ph.map((h) => `${X(h[1]).toFixed(1)},${Y(uy(sig(h[1]), sgn[p.from] ?? 1)).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="1.25" opacity="0.22" strokeLinejoin="round" />;
+      return ph.length > 1 && <polyline key={"t" + p.from} points={ph.map((h) => `${X(h[1]).toFixed(1)},${Y(uy(sig(h[1]), sgn[p.from] ?? 1)).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="2" opacity="0.3" strokeLinejoin="round" strokeLinecap="round" />;
     })}
-    {!cmpOn && parts.map((p) => (<g key={p.from} opacity="0.45">
-      <circle cx={X(p.frac)} cy={Y(uy(sig(p.frac), sgn[p.from] ?? 1))} r={7 + Math.min(6, p.n / 5)} fill={col} stroke="#FFFFFF" strokeWidth={1.5} />
-      <text x={X(p.frac)} y={Y(uy(sig(p.frac), sgn[p.from] ?? 1)) + 5} textAnchor="middle" fontSize="15">{p.tag}</text>
+    {!cmpOn && parts.map((p) => (<g key={p.from} opacity="0.6">
+      <circle cx={X(p.frac)} cy={Y(uy(sig(p.frac), sgn[p.from] ?? 1))} r={8 + Math.min(6, p.n / 5)} fill={col} stroke="#FFFFFF" strokeWidth={2} />
+      <text x={X(p.frac)} y={Y(uy(sig(p.frac), sgn[p.from] ?? 1)) + 5} textAnchor="middle" fontSize="16">{p.tag}</text>
     </g>))}
     {/* the room's path: pooled fraction, ± E(sd) */}
-    {trail.length > 1 && <polyline points={trail.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke="#FFFFFF" strokeWidth="6" opacity="0.9" strokeLinejoin="round" strokeLinecap="round" />}
-    {trail.length > 1 && <polyline points={trail.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
-    {defined && <line x1={X(0.5)} y1={Y(0)} x2={X(pool.p)} y2={Y(pool.w)} stroke={GOLD} strokeWidth={2.5} strokeLinecap="round" opacity={0.85} />}
-    {defined && Math.abs(twoTh) > 2 && Math.abs(twoTh) < 178 && <path d={arcFrom0(X(0.5), Y(0), 40, twoTh)} fill="none" stroke={GOLD} strokeWidth={2} />}
-    {defined && settled && !cmpOn && <Txt x={X(0.5) + 62 * Math.cos(twoTh / 2 * DEG)} y={Y(0) - 62 * Math.sin(twoTh / 2 * DEG) + 5} anchor={Math.abs(twoTh) < 70 ? "start" : Math.abs(twoTh) > 110 ? "end" : "middle"} size={13} fill={GOLD} bold>{`2θ = ${Math.round(twoTh)}°`}</Txt>}
-    {pool && <circle cx={X(pool.p)} cy={Y(pool.w)} r="12" fill={col} stroke="#FFFFFF" strokeWidth={2.25} />}
-    {pool && <Txt x={X(pool.p)} y={Y(pool.w) + (defined || Math.abs(pool.w) > 0.05 || Math.abs(pool.p - 0.5) < 0.12 ? -20 : 30)} size={14} fill={INK} bold>{cmpOn ? `room · ${phi}° sheet` : "room"}</Txt>}
-    {LR.n === 0 && <Txt x={X(0.5)} y={Y(0.3)} size={17}>send photons through the sheet, one at a time (click = 1, no click = 0)</Txt>}
-    {!cmpOn && pool && live && unf < 0.5 && <g opacity={1 - 2 * unf}><Txt x={X(0.5)} y={514 + 80 * unf} size={14} fill={INK}>{`± E(sd): each beam's own bandwidth — the room's is their average · ${LR.n} photons fired by ${LR.phones.length} beams`}</Txt></g>}
-    {!cmpOn && pool && live && unf >= 0.5 && <g opacity={2 * unf - 1}><Txt x={X(0.5)} y={514 + 80 * unf} size={14} fill={INK}>{`the floor was a fold — each beam's tilt against the sheet gives its bandwidth a sign · ${LR.n} photons`}</Txt></g>}
-    {cmpOn && live && hidden && <g opacity={1 - 2 * unf}><Txt x={X(0.5)} y={514 + 80 * unf} size={14} fill={RED}>{`folded, the ${sgM < 0 ? phi : other}° room is mirrored up onto the half-disk — unfold the disk to see the 90° turn`}</Txt></g>}
-    {cmpOn && live && !hidden && <g opacity={unf < 0.5 ? 1 : 1}><Txt x={X(0.5)} y={514 + 80 * unf} size={14} fill={INK}>{recapOn ? recapCap : `same ${beta ?? ""}° beam, two sheets: the sheet turns 45°, the room's pointer turns 90° · ${LR.n} + ${LR2 ? LR2.n : 0} photons`}</Txt></g>}
+    {trail.length > 1 && <polyline points={trail.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke="#FFFFFF" strokeWidth="8" opacity="0.9" strokeLinejoin="round" strokeLinecap="round" />}
+    {trail.length > 1 && <polyline points={trail.map((h) => `${X(h[1]).toFixed(1)},${Y(expSd(h[0])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="4.5" strokeLinejoin="round" strokeLinecap="round" />}
+    {defined && <line x1={X(0.5)} y1={Y(0)} x2={X(pool.p)} y2={Y(pool.w)} stroke={GOLD} strokeWidth={3.5} strokeLinecap="round" />}
+    {defined && Math.abs(twoTh) > 2 && Math.abs(twoTh) < 178 && <path d={arcFrom0(X(0.5), Y(0), 40, twoTh)} fill="none" stroke={GOLD} strokeWidth={3} />}
+    {defined && settled && !cmpOn && <Txt x={X(0.5) + 62 * Math.cos(twoTh / 2 * DEG)} y={Y(0) - 62 * Math.sin(twoTh / 2 * DEG) + 5} anchor={Math.abs(twoTh) < 70 ? "start" : Math.abs(twoTh) > 110 ? "end" : "middle"} size={15} fill={GOLD} bold>{`2θ = ${Math.round(twoTh)}°`}</Txt>}
+    {pool && <circle cx={X(pool.p)} cy={Y(pool.w)} r="13" fill={col} stroke="#FFFFFF" strokeWidth={3} />}
+    {pool && <Txt x={X(pool.p)} y={Y(pool.w) + (defined || Math.abs(pool.w) > 0.05 || Math.abs(pool.p - 0.5) < 0.12 ? -22 : 34)} size={17} fill={INK} bold>{cmpOn ? `room · ${phi}° sheet` : "room"}</Txt>}
+    {LR.n === 0 && <Txt x={X(0.5)} y={Y(0.3)} size={17} fill={INK}>send photons through the sheet, one at a time (click = 1, no click = 0)</Txt>}
+    {!cmpOn && pool && live && unf < 0.5 && <g opacity={1 - 2 * unf}><Txt x={X(0.5)} y={514 + 80 * unf} size={16} fill={INK}>{`± E(sd): each beam's own bandwidth — the room's is their average · ${LR.n} photons fired by ${LR.phones.length} beams`}</Txt></g>}
+    {!cmpOn && pool && live && unf >= 0.5 && <g opacity={2 * unf - 1}><Txt x={X(0.5)} y={514 + 80 * unf} size={16} fill={INK}>{`the floor was a fold — each beam's tilt against the sheet gives its bandwidth a sign · ${LR.n} photons`}</Txt></g>}
+    {cmpOn && live && hidden && <g opacity={1 - 2 * unf}><Txt x={X(0.5)} y={514 + 80 * unf} size={16} fill={RED}>{`folded, the ${sgM < 0 ? phi : other}° room is mirrored up onto the half-disk — unfold the disk to see the 90° turn`}</Txt></g>}
+    {cmpOn && live && !hidden && <g><Txt x={X(0.5)} y={514 + 80 * unf} size={16} fill={INK}>{recapOn ? recapCap : `same ${beta ?? ""}° beam, two sheets: the sheet turns 45°, the room's pointer turns 90° · ${LR.n} + ${LR2 ? LR2.n : 0} photons`}</Txt></g>}
   </>) });
   useEffect(() => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.overflow = "visible"; }, []);
   return (
@@ -1519,8 +1561,8 @@ function FigSwapRoom() {
   const Lshape = (Q, a, c, dash, labels) => { if (!Q) return null; const A = rotP(Q.p - 0.5, 0, a), B = rotP(Q.p - 0.5, Q.e, a); const mA = rotP((Q.p - 0.5) / 2, 0, a), mB = rotP(Q.p - 0.5, Q.e / 2, a); const far = (q) => [X(0.5 + q[0] * 1) + (q[0] >= 0 ? 1 : -1) * 0, Y(q[1])]; return (<g>
     <line x1={X(0.5)} y1={Y(0)} x2={X(0.5 + A[0])} y2={Y(A[1])} stroke={c} strokeWidth={4} strokeLinecap="round" strokeDasharray={dash} />
     <line x1={X(0.5 + A[0])} y1={Y(A[1])} x2={X(0.5 + B[0])} y2={Y(B[1])} stroke={c} strokeWidth={4} strokeLinecap="round" strokeDasharray={dash} />
-    {labels && labels[0] && Math.abs(Q.p - 0.5) > 0.06 && <Txt x={X(0.5 + mA[0]) + (Math.abs(mA[1]) > 1e-6 ? (mA[0] >= 0 ? 0 : 0) : 0) + (Math.abs(A[1]) > 1e-6 ? 14 : 0)} y={Y(mA[1]) + (Math.abs(A[1]) > 1e-6 ? 5 : 22)} anchor={Math.abs(A[1]) > 1e-6 ? "start" : "middle"} size={13} fill={c} bold>{labels[0]}</Txt>}
-    {labels && labels[1] && Math.abs(Q.e) > 0.06 && <Txt x={X(0.5 + mB[0]) + (Math.abs(B[1] - A[1]) > 1e-6 ? (B[0] >= 0 ? 14 : -14) : 0)} y={Y(mB[1]) + (Math.abs(B[1] - A[1]) > 1e-6 ? 5 : (B[1] >= 0 ? -12 : 24))} anchor={Math.abs(B[1] - A[1]) > 1e-6 ? (B[0] >= 0 ? "start" : "end") : "middle"} size={13} fill={c} bold>{labels[1]}</Txt>}
+    {labels && labels[0] && Math.abs(Q.p - 0.5) > 0.06 && <Txt x={X(0.5 + mA[0]) + (Math.abs(mA[1]) > 1e-6 ? (mA[0] >= 0 ? 0 : 0) : 0) + (Math.abs(A[1]) > 1e-6 ? 14 : 0)} y={Y(mA[1]) + (Math.abs(A[1]) > 1e-6 ? 5 : 22)} anchor={Math.abs(A[1]) > 1e-6 ? "start" : "middle"} size={15} fill={c} bold>{labels[0]}</Txt>}
+    {labels && labels[1] && Math.abs(Q.e) > 0.06 && <Txt x={X(0.5 + mB[0]) + (Math.abs(B[1] - A[1]) > 1e-6 ? (B[0] >= 0 ? 14 : -14) : 0)} y={Y(mB[1]) + (Math.abs(B[1] - A[1]) > 1e-6 ? 5 : (B[1] >= 0 ? -12 : 24))} anchor={Math.abs(B[1] - A[1]) > 1e-6 ? (B[0] >= 0 ? "start" : "end") : "middle"} size={15} fill={c} bold>{labels[1]}</Txt>}
   </g>); };
   const T = (Q) => { if (!Q) return null; const q = rotP(Q.p - 0.5, Q.e, -rot * DEG); return { x: X(0.5 + q[0]), y: Y(q[1]) }; };
   const G = T(Q45);
@@ -1531,34 +1573,35 @@ function FigSwapRoom() {
     <div ref={wrap} style={{ position: "relative" }}>
       <svg viewBox="0 0 900 600" style={{ ...svgStyle, overflow: "visible" }}>
         {/* the unfolded disk */}
-        <circle cx={cx} cy={cy} r={S / 2} fill="none" stroke={INK} strokeWidth="1.75" strokeDasharray="7 6" opacity="0.6" />
-        <line x1={X(0)} y1={cy} x2={X(1)} y2={cy} stroke={INK} strokeWidth="2.25" />
-        <line x1={X(0.5)} y1={Y(0.55)} x2={X(0.5)} y2={Y(-0.55)} stroke={SOFT} strokeWidth="1.25" strokeDasharray="5 4" />
-        <Txt x={X(0) - 12} y={cy + 5} anchor="end" size={13} fill={INK} bold>p = 0</Txt>
-        <Txt x={X(1) + 12} y={cy + 5} anchor="start" size={13} fill={INK} bold>p = 1</Txt>
-        <Txt x={X(0.5) + 10} y={Y(0.5) - 8} anchor="start" size={13}>+½ · bandwidth</Txt>
-        <Txt x={X(0.5) + 10} y={Y(-0.5) + 20} anchor="start" size={13}>−½</Txt>
-        <Txt x={X(0.5)} y={cy + 20} size={12}>½</Txt>
+        <circle cx={cx} cy={cy} r={S / 2} fill={PEACH} fillOpacity="0.35" stroke={GOLD} strokeWidth="4" strokeDasharray="9 8" />
+        <line x1={X(0)} y1={cy} x2={X(1)} y2={cy} stroke={INK} strokeWidth="3.5" />
+        <line x1={X(0.5)} y1={Y(0.55)} x2={X(0.5)} y2={Y(-0.55)} stroke={SOFT} strokeWidth="2" strokeDasharray="5 6" />
+        <circle cx={X(0)} cy={cy} r="9" fill={INK} /><circle cx={X(1)} cy={cy} r="9" fill={INK} />
+        <Txt x={X(0) - 18} y={cy + 6} anchor="end" size={16} fill={INK} bold>p = 0</Txt>
+        <Txt x={X(1) + 18} y={cy + 6} anchor="start" size={16} fill={INK} bold>p = 1</Txt>
+        <Txt x={X(0.5) + 12} y={Y(0.5) - 10} anchor="start" size={15} fill={INK}>+½ · bandwidth</Txt>
+        <Txt x={X(0.5) + 12} y={Y(-0.5) + 22} anchor="start" size={15} fill={INK}>−½</Txt>
+        <Txt x={X(0.5) + 12} y={cy + 22} anchor="start" size={14} fill={INK}>½</Txt>
         {/* the L of the 0° numbers; the 45° sheet's L, turning back 90° onto it */}
         {Lshape(Q0, 0, col, undefined, turned ? ["p − ½ = ½ − E₄₅", null] : ["p − ½", "E(sd)"])}
         {Lshape(Q45, -rot * DEG, GOLD, "7 5", rot > 0.5 ? turnedLabel : ["p₄₅ − ½", "E₄₅"])}
-        {rot > 0.5 && a45 !== null && <path d={arcBetween(X(0.5), Y(0), 48, a45, a45 + rot)} fill="none" stroke={GOLD} strokeWidth={3} strokeLinecap="round" />}
-        {rot > 0.5 && a45 !== null && <Txt x={X(0.5) + 72 * Math.cos((a45 + rot / 2) * DEG)} y={Y(0) - 72 * Math.sin((a45 + rot / 2) * DEG) + 5} size={14} fill={GOLD} bold>{`${Math.round(rot)}°`}</Txt>}
+        {rot > 0.5 && a45 !== null && <path d={arcBetween(X(0.5), Y(0), 48, a45, a45 + rot)} fill="none" stroke={GOLD} strokeWidth={4} strokeLinecap="round" />}
+        {rot > 0.5 && a45 !== null && <Txt x={X(0.5) + 72 * Math.cos((a45 + rot / 2) * DEG)} y={Y(0) - 72 * Math.sin((a45 + rot / 2) * DEG) + 5} size={16} fill={GOLD} bold>{`${Math.round(rot)}°`}</Txt>}
         {/* the two measured rooms */}
         {Q45 && <g>
-          <line x1={X(0.5)} y1={Y(0)} x2={X(Q45.p)} y2={Y(Q45.e)} stroke={GOLD} strokeWidth={2.5} strokeLinecap="round" strokeDasharray="7 6" opacity={0.85} />
-          <circle cx={X(Q45.p)} cy={Y(Q45.e)} r="12" fill="#FFFFFF" stroke={col} strokeWidth={3} />
-          <Txt x={X(Q45.p)} y={Y(Q45.e) + (Q45.e >= 0 ? -20 : 32)} size={14} fill={INK} bold>room · 45° sheet</Txt>
+          <line x1={X(0.5)} y1={Y(0)} x2={X(Q45.p)} y2={Y(Q45.e)} stroke={GOLD} strokeWidth={3} strokeLinecap="round" strokeDasharray="7 6" />
+          <circle cx={X(Q45.p)} cy={Y(Q45.e)} r="13" fill="#FFFFFF" stroke={col} strokeWidth={3.5} />
+          <Txt x={X(Q45.p)} y={Y(Q45.e) + (Q45.e >= 0 ? -22 : 34)} size={17} fill={INK} bold>room · 45° sheet</Txt>
         </g>}
         {Q0 && <g>
-          <line x1={X(0.5)} y1={Y(0)} x2={X(Q0.p)} y2={Y(Q0.e)} stroke={GOLD} strokeWidth={2.5} strokeLinecap="round" opacity={0.85} />
-          <circle cx={X(Q0.p)} cy={Y(Q0.e)} r="12" fill={col} stroke="#FFFFFF" strokeWidth={2.25} />
-          <Txt x={X(Q0.p)} y={Y(Q0.e) + (Q0.e >= 0 ? -20 : 32)} size={14} fill={INK} bold>room · 0° sheet</Txt>
+          <line x1={X(0.5)} y1={Y(0)} x2={X(Q0.p)} y2={Y(Q0.e)} stroke={GOLD} strokeWidth={3.5} strokeLinecap="round" />
+          <circle cx={X(Q0.p)} cy={Y(Q0.e)} r="13" fill={col} stroke="#FFFFFF" strokeWidth={3} />
+          <Txt x={X(Q0.p)} y={Y(Q0.e) + (Q0.e >= 0 ? -22 : 34)} size={17} fill={INK} bold>room · 0° sheet</Txt>
         </g>}
-        {G && rot > 0.5 && <circle cx={G.x} cy={G.y} r="12" fill="#FFFFFF" stroke={col} strokeWidth={3} opacity={0.6} />}
-        {!Q0 && <Txt x={X(0.5)} y={Y(0.15)} size={15}>no photons through the 0° sheet yet</Txt>}
-        {Q0 && !Q45 && <Txt x={X(0.5)} y={Y(-0.42)} size={14} fill={SOFT}>no photons through the 45° sheet yet</Txt>}
-        {Q0 && Q45 && a0 === null && <Txt x={X(0.5)} y={Y(-0.42)} size={14} fill={SOFT}>both rooms sit at the centre — p = ½ and E(sd) = 0 through either sheet</Txt>}
+        {G && rot > 0.5 && <circle cx={G.x} cy={G.y} r="13" fill="#FFFFFF" stroke={col} strokeWidth={3.5} opacity={0.6} />}
+        {!Q0 && <Txt x={X(0.5)} y={Y(0.15)} size={17} fill={INK}>no photons through the 0° sheet yet</Txt>}
+        {Q0 && !Q45 && <Txt x={X(0.5)} y={Y(-0.42)} size={16} fill={INK}>no photons through the 45° sheet yet</Txt>}
+        {Q0 && Q45 && a0 === null && <Txt x={X(0.5)} y={Y(-0.42)} size={16} fill={INK}>both rooms sit at the centre — p = ½ and E(sd) = 0 through either sheet</Txt>}
         {/* one legend: the two measured pairs, and the pair they make once the 45° L has turned back */}
         {(() => {
           const PW = 270, PH = 120, PY = -142, LX = 915 - PW, t = Math.min(1, rot / 90), pair = (p, e) => `(${p.toFixed(2)}, ${f2(e)})`;
@@ -1849,23 +1892,34 @@ function FigGlassBench({ preset = "full" }) {
   const unpol = a1 === -1;
   const glass = mid === "glass", midSheet = mid === "sheet", cam = Math.cos(am * DEG), sam = Math.sin(am * DEG);
   const [phi, setPhi] = useState(pre.phi ?? 45);
-  const [light, setLight] = useState(pre.light);
+  const room = Room.usePresenter();                                   // light (beam · wave) and view are shared across the scene-7 bench slides
+  const shared = preset === "third";                                   // the scene-7 third-sheet slide follows the shared state; the Act III presets keep their own opening light
+  const [lightLocal, setLightLocal] = useState(pre.light);            // Act III presets: own light, never written to the room
+  const light = shared ? (room.state.lightMode ?? "beam") : lightLocal;
+  const setLight = (v) => { if (shared) room.publish({ lightMode: v }, true); else setLightLocal(v); };
+  const [viewLocal, setViewLocal] = useState("side view");
   const [delay, setDelay] = useState(pre.delay ?? 90), [undo, setUndo] = useState(pre.undo);   // the glass's delay of the V wiggle (¼, ½ or a full turn) · a second glass with the delay reversed
   const undoOn = glass && undo, dName = delay === 90 ? "¼ turn" : delay === 180 ? "½ turn" : "full turn";
   const wave = light === "wave";
-  // the bench laid out as on the sunglasses slide: lamp at −L, sheet 1 a third of the way in, exit face at +L. Nothing in between: sheet 2 halfway to the exit. Something in: sheet 1 · object(s) · sheet 2 · exit equally spaced
-  const L = 3.04, z1 = -2 * L / 3, hs = 0.8, gw = 0.22;
-  const posOf = (m, u) => { const n = m === "none" ? 0 : m === "glass" && u ? 2 : 1; const stp = (L - z1) / (n + 2); return n === 0 ? { zg: z1 + (L - z1) / 3, zu: z1 + 2 * (L - z1) / 3, z2: (z1 + L) / 2 } : { zg: z1 + stp, zu: z1 + 2 * stp, z2: z1 + (n + 1) * stp }; };
+  // the bench laid out as on the sunglasses slide: lamp at −L, sheet 1 a third of the way in, sheet 2 halfway to the exit face at +L — fixed across scene 7, whatever stands between. Middle object(s) are spaced evenly between sheet 1 and sheet 2
+  const L = 3.04, z1 = -2 * L / 3, hs = 0.8, gw = 0.22, z2F = (z1 + L) / 2;
+  const posOf = (m, u) => { const n = m === "none" ? 0 : m === "glass" && u ? 2 : 1; const stp = (z2F - z1) / (n + 1); return n === 0 ? { zg: z1 + stp / 2, zu: z1 + stp / 2, z2: z2F } : { zg: z1 + stp, zu: z1 + 2 * stp, z2: z2F }; };
   const VIEWS = { "side view": { yaw: 90, pitch: 22 }, "3D": { yaw: 64, pitch: 16 } };   // the same two views as the sunglasses bench
-  const [view, setView] = useState("side view");
-  const [st, setSt] = useState({ run: false, yaw: 90, pitch: 22, ...posOf(pre.mid, pre.undo) });
+  const view = shared ? (VIEWS[room.state.waveView] ? room.state.waveView : "side view") : viewLocal;   // shared with the other scene-7 bench slides (wiggles / down-the-axis fall back to side view)
+  const setView = (v) => { if (shared) room.publish({ waveView: v }, true); else setViewLocal(v); };
+  const [st, setSt] = useState({ run: false, ...VIEWS[view], ...posOf(pre.mid, pre.undo) });
   const wrap = useRef(null);
   const enter = useSlideEnter(wrap);
   const tgt = useRef(null), drag = useRef(null), posTgt = useRef(posOf(pre.mid, pre.undo));
-  useEffect(() => { setMid(pre.mid); setUndo(pre.undo); setDelay(pre.delay ?? 90); posTgt.current = posOf(pre.mid, pre.undo); setPhi(pre.phi ?? 45); setA1(pre.a1); setAm(pre.am ?? 0); setLight(pre.light); setView("side view"); tgt.current = VIEWS["side view"]; setSt((s) => ({ ...s, run: false, ...posOf(pre.mid, pre.undo) })); }, [enter]);
+  useEffect(() => { setMid(pre.mid); setUndo(pre.undo); setDelay(pre.delay ?? 90); posTgt.current = posOf(pre.mid, pre.undo); setPhi(pre.phi ?? 45); setA1(pre.a1); setAm(pre.am ?? 0); if (!shared) { setLightLocal(pre.light); setViewLocal("side view"); tgt.current = VIEWS["side view"]; } setSt((s) => ({ ...s, run: shared ? (room.state.benchRun ?? true) : false, ...posOf(pre.mid, pre.undo) })); }, [enter]);
+  const benchRun = room.state.benchRun ?? true;                                                       // play / pause shared across the scene-7 bench slides
+  useEffect(() => { if (shared) setSt((s) => (s.run === benchRun ? s : { ...s, run: benchRun })); }, [benchRun]);
+  const toggleRun = () => { if (shared) room.publish({ benchRun: !benchRun }, true); else setSt((s) => ({ ...s, run: !s.run })); };
   const pickMid = (m) => { setMid(m); posTgt.current = posOf(m, undo); };
   const pickUndo = () => { const u = !undo; setUndo(u); posTgt.current = posOf(mid, u); };
   const pickView = (v) => { setView(v); tgt.current = VIEWS[v]; };
+  const viewFirst = useRef(true);
+  useEffect(() => { if (viewFirst.current) { viewFirst.current = false; return; } tgt.current = VIEWS[view]; }, [view, enter]);   // follow the shared view, incl. picks made on another slide
   const [t, setT] = useState(0);
   const stRef = useRef(st); stRef.current = st;
   useEffect(() => { let id; const loop = () => {
@@ -1877,7 +1931,7 @@ function FigGlassBench({ preset = "full" }) {
   stRef.current = { ...st, wave };
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const onDown = (e) => { if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); tgt.current = null; drag.current = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; };
-  const onMove = (e) => { if (!drag.current) return; const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y; setSt((s) => ({ ...s, yaw: cl(drag.current.yaw - dx * 0.35, 10, 100), pitch: cl(drag.current.pitch + dy * 0.35, -22, 22) })); };
+  const onMove = (e) => { const d0 = drag.current; if (!d0) return; const dx = e.clientX - d0.x, dy = e.clientY - d0.y; setSt((s) => ({ ...s, yaw: cl(d0.yaw - dx * 0.35, 10, 100), pitch: cl(d0.pitch + dy * 0.35, -22, 22) })); };
   const onUp = (e) => { if (drag.current && e && Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) > 2) swallowClick(); drag.current = null; };
   const c12 = Math.cos((phi - a1) * DEG);
   const cm1 = Math.cos((am - a1) * DEG), c2m = Math.cos((phi - am) * DEG);
@@ -1896,18 +1950,29 @@ function FigGlassBench({ preset = "full" }) {
   const z2 = st.z2, zg = st.zg, zu = st.zu;
   const Iat = (z) => z < z1 ? I0 : z < zg ? I1 : z < z2 ? Im : I2;
   const P = (z) => proj(0, 0, z);
-  const seg = (za, zb, I, key) => { const A = P(za), B = P(zb); return (<g key={key}>
-    {I < 0.01 && <line x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={LBLUE} strokeWidth={1.5} strokeDasharray="4 6" />}
-    {I >= 0.01 && <line x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={6 + 26 * Math.sqrt(I)} strokeLinecap="butt" opacity={0.14 + 0.2 * I} />}
-    {I >= 0.01 && <line x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={2 + 6 * Math.sqrt(I)} strokeLinecap="butt" opacity={0.45 + 0.45 * I} />}
-  </g>); };
+  // occlusion: a beam sample or grain lying behind a square (sheet, glass face, exit frame) whose screen point falls inside it is drawn faint and dashed
+  const polyAt = (z0, h = hs) => [[-h, -h], [h, -h], [h, h], [-h, h]].map((c) => proj(c[0], c[1], z0));
+  const inPoly = (Pg, q) => { let ins = false; for (let i = 0, j = 3; i < 4; j = i++) { const a = Pg[i], b = Pg[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) ins = !ins; } return ins; };
+  const occl = [[L, polyAt(L)], [z2, polyAt(z2)]]; if (!unpol) occl.push([z1, polyAt(z1)]); if (midSheet) occl.push([zg, polyAt(zg)]); if (glass) occl.push([zg + gw, polyAt(zg + gw, hs * 0.78)]); if (undoOn) occl.push([zu + gw, polyAt(zu + gw, hs * 0.78)]);
+  const hid = (z, q) => occl.some(([z0, Pg]) => z < z0 - 1e-6 && inPoly(Pg, q));
+  const seg = (za, zb, I, key) => {
+    if (I < 0.01) { const A = P(za), B = P(zb); return <line key={key} x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={LBLUE} strokeWidth={1.5} strokeDasharray="4 6" />; }
+    const NB = 48, runs = []; let cur = null;
+    for (let i = 0; i <= NB; i++) { const z = za + ((zb - za) * i) / NB, q = P(z), h = hid(z, q); if (!cur || cur.h !== h) { if (cur) cur.pts.push(q); cur = { h, pts: [q] }; runs.push(cur); } else cur.pts.push(q); }
+    return (<g key={key}>{runs.map((r, i) => { const A = r.pts[0], B = r.pts[r.pts.length - 1]; return r.h
+      ? <line key={i} x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={2 + 6 * Math.sqrt(I)} strokeLinecap="butt" opacity={0.3} strokeDasharray="7 6" />
+      : (<g key={i}>
+        <line x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={6 + 26 * Math.sqrt(I)} strokeLinecap="butt" opacity={0.14 + 0.2 * I} />
+        <line x1={A[0]} y1={A[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={2 + 6 * Math.sqrt(I)} strokeLinecap="butt" opacity={0.45 + 0.45 * I} />
+      </g>); })}</g>);
+  };
   const ND = 64, rnd = (k, m) => { const x = Math.sin(k * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); };
   const grains = Array.from({ length: ND }, (_, k) => {
-    const z = -L + ((k / ND + t * 0.55) % 1) * 2 * L;
+    const z = -L + ((k / ND + t * 0.1266) % 1) * 2 * L;
     const lot = rnd(k, 1), ox = (rnd(k, 2) - 0.5) * 0.34, oy = (rnd(k, 3) - 0.5) * 0.34;
     if (lot >= Iat(z)) return null;
     const q = proj(ox, oy, z);
-    return <circle key={k} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={0.95} />;
+    return <circle key={k} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid(z, q) ? 0.3 : 0.95} />;
   });
   const sqAt = (z, h = hs) => [[-h, -h], [h, -h], [h, h], [-h, h]].map((c) => proj(c[0], c[1], z).map((v) => v.toFixed(1)).join(",")).join(" ");
   const SheetG = ({ z, ang, col, label }) => { const ca = Math.cos(ang * DEG), sa = Math.sin(ang * DEG); const lb = proj(0, -hs - 0.42, z); return (<g>
@@ -1929,7 +1994,7 @@ function FigGlassBench({ preset = "full" }) {
   // the wave: an H wiggle (size a) and a V wiggle (size b) riding the beam from sheet 1 on; the glass lets the V wiggle run δ late, a second glass lets it catch up again; sheet 2 keeps the part along φ. Lamplight: sizes and timing jump at random
   const rj = Math.floor(t / 2.4), rA = unpol ? rnd(rj, 7) * 180 : a1, rD = unpol ? rnd(rj, 8) * 2 * Math.PI : 0;
   const A3 = 0.62, aW = Math.cos(rA * DEG), bW = Math.sin(rA * DEG), del = glass ? delay * DEG : 0, cphi = Math.cos(phi * DEG), sphi = Math.sin(phi * DEG);
-  const KW = 6.2, zGe = zg + gw, zUe = zu + gw;
+  const KW = 6.2, zGe = glass ? zg + gw : zg, zUe = zu + gw;             // where the middle object stops acting: the glass's exit face, or the sheet's own plane
   const lagAt = (z) => rD + (z <= zGe ? 0 : undoOn && z > zUe ? 0 : del);
   const field = (z, tt) => { const ph = tt - KW * z; let ex = A3 * aW * Math.sin(ph), ey = A3 * bW * Math.sin(ph - lagAt(z)); if (midSheet && z > zGe) { const km = ex * cam + ey * sam; ex = km * cam; ey = km * sam; } if (z <= z2) return [ex, ey]; const k = ex * cphi + ey * sphi; return [k * cphi, k * sphi]; };
   const zsW = (() => { const out = []; const N = 110; for (let i = 0; i <= N; i++) { const z = z1 + ((L - z1) * i) / N; out.push(z); } [zGe, zUe, z2].forEach((zc) => out.push(zc - 1e-4, zc + 1e-4)); return out.sort((p, q) => p - q); })();
@@ -1965,11 +2030,13 @@ function FigGlassBench({ preset = "full" }) {
     <div ref={wrap} style={{ width: "100%" }}>
       <svg viewBox="0 0 900 470" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         style={{ width: "100%", display: "block", touchAction: "none", userSelect: "none", cursor: "grab" }}>
-        {wave ? seg(-L, z1, I0, "b0") : [seg(-L, z1, I0, "b0"), seg(z1, zg, I1, "b1"), seg(zg, z2, Im, "bm"), seg(z2, L, I2, "b2")]}
-        {!wave && grains}
+        {wave && seg(-L, z1, I0, "b0")}
         {wave && <line x1={P(z1)[0]} y1={P(z1)[1]} x2={det[0]} y2={det[1]} stroke={LBLUE} strokeWidth={2} />}
-        {wave && frameAt(zTrail, GOLD)}{wave && frameAt(zE, PURP)}
+        {wave && glass && frameAt(zTrail, GOLD)}{wave && frameAt(zE, PURP)}
         {!wave && <polygon points={sqAt(zE)} fill="none" stroke={LBLUE} strokeWidth={2} strokeDasharray="3 4" />}
+        {/* the lamp → sheet 1 stretch, as on the sunglasses bench: beam and extra grains drawn first so the lamp disc sits on top and the light leaves from its rim */}
+        {!wave && seg(-L, z1, I0, "b0")}
+        {!wave && Array.from({ length: 22 }, (_, k) => { const r = (m) => { const x = Math.sin(k * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); }; const z = -L + ((k / 22 + t * 0.1266 * 2 * L / (z1 + L)) % 1) * (z1 + L); const q = proj((r(2) - 0.5) * 0.34, (r(3) - 0.5) * 0.34, z); return <circle key={"g0" + k} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid(z, q) ? 0.3 : 0.95} />; })}
         <circle cx={lamp[0]} cy={lamp[1]} r={22} fill="#FDEFE3" stroke={GOLD} strokeWidth={2.5} />
         <circle cx={lamp[0]} cy={lamp[1]} r={9} fill={GOLD} />
         <Txt x={lampLb[0]} y={lampLb[1]} size={14} fill={INK} bold>lamp</Txt>
@@ -1978,6 +2045,9 @@ function FigGlassBench({ preset = "full" }) {
         {undoOn && <GlassG z={zu} label="glass 2 · reversed" rev />}
         {midSheet && <SheetG z={zg} ang={am} col={INK} label={"sheet · " + name(am)} />}
         <SheetG z={z2} ang={phi} col={INK} label={s2 + " · " + name(phi)} />
+        {/* beam over the sheets (as on the sunglasses bench): the part behind a sheet is already faint and dashed, the part in front draws at full strength */}
+        {!wave && [seg(z1, zg, I1, "b1"), seg(zg, z2, Im, "bm"), seg(z2, L, I2, "b2")]}
+        {!wave && grains}
         {wave && <g>
           {zsW.filter((_, i) => i % 7 === 0).map((z, i) => { const f = field(z, t), qa = proj(0, 0, z), qh = proj(f[0], 0, z), qv = proj(0, f[1], z), q2 = proj(f[0], f[1], z); return (<g key={"s" + i}>
             <line x1={qa[0]} y1={qa[1]} x2={qh[0]} y2={qh[1]} stroke={GOLD} strokeWidth={1.6} strokeDasharray="3 5" opacity={0.5} />
@@ -1986,7 +2056,7 @@ function FigGlassBench({ preset = "full" }) {
           <polyline points={plW((z) => proj(field(z, t)[0], 0, z))} fill="none" stroke={GOLD} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />
           <polyline points={plW((z) => proj(0, field(z, t)[1], z))} fill="none" stroke={TEAL} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />
           <polyline points={plW((z) => { const f = field(z, t); return proj(f[0], f[1], z); })} fill="none" stroke={INK} strokeWidth={4.5} strokeLinejoin="round" />
-          {trailAt(zTrail, INK)}{trailAt(zE, PURP)}
+          {glass && trailAt(zTrail, INK)}{trailAt(zE, PURP)}
         </g>}
         <g>
           <rect x={859} y={40} width={16} height={90} fill="none" stroke={SOFT} strokeWidth={1.5} />
@@ -1999,17 +2069,21 @@ function FigGlassBench({ preset = "full" }) {
         </text>
         <text x={25} y={454} fontFamily={MONO} fontSize="14" fill={glass ? PURP : SOFT}>{verdict}</text>
       </svg>
-      {/* same footer height as the wave bench (two slider rows + buttons), so lamp, sheets and beam sit at one height across scene 7 */}
-      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 6, minHeight: 130, alignContent: "flex-end" }}>
-        <Button ghost onClick={() => setSt((s) => ({ ...s, run: !s.run }))}>{st.run ? "❙❙" : "▶"}</Button>
-        {has("a1") && <Menu label={"sheet 1 · " + name(a1)} value={a1} items={[[-1, "none · plain lamplight"], [0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => setA1(g)} />}
-        {has("mid") && <Menu label={"between · " + (glass ? "glass" : midSheet ? "striped sheet" : "nothing")} value={mid} items={[["none", "nothing"], ["glass", "the glass"], ["sheet", "a striped sheet"]]} onPick={pickMid} />}
-        {has("am") && midSheet && <Menu label={"middle sheet · " + name(am)} value={am} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => setAm(g)} />}
+      {/* the legend panel the wave bench shows, as an invisible spacer: lamp, sheets and beam sit at one height across scene 7 */}
+      <div style={{ display: "flex", gap: 0, marginTop: 8, border: `1px solid ${LBLUE}`, borderRadius: 8, visibility: "hidden" }} aria-hidden="true">
+        <div style={{ flex: 1, padding: "7px 14px" }}><div style={{ fontFamily: MONO, fontSize: 13 }}>·</div><div style={{ fontFamily: MONO, fontSize: 15, marginTop: 2 }}>·</div></div>
+      </div>
+      {/* more menus than the other benches — short labels + nowrap keep it on one line, so the figure keeps the same height as the other scene-7 slides */}
+      <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "nowrap", marginTop: 6 }}>
+        <Button ghost onClick={toggleRun}>{st.run ? "❙❙" : "▶"}</Button>
+        {has("a1") && <Menu label={"1 · " + name(a1)} value={a1} items={[[-1, "none · plain lamplight"], [0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => setA1(g)} />}
+        {has("mid") && <Menu label={glass ? "glass" : midSheet ? "mid sheet" : "nothing between"} value={mid} items={[["none", "nothing"], ["glass", "the glass"], ["sheet", "a striped sheet"]]} onPick={pickMid} />}
+        {has("am") && midSheet && <Menu label={"mid · " + name(am)} value={am} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => setAm(g)} />}
         {has("delay") && glass && <Menu label={"delay · " + dName} value={delay} items={[[90, "¼ turn"], [180, "½ turn"], [360, "a full turn"]]} onPick={(d) => setDelay(d)} />}
         {has("undo") && glass && <Button active={undo} ghost={!undo} onClick={pickUndo}>{undo ? "second glass: in" : delay === 180 ? "add a glass that turns back" : "add a reversed glass"}</Button>}
-        {has("phi") && <Menu label={s2 + " · " + name(phi)} value={phi} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"], [135, "other diagonal · crossed"]]} onPick={(g) => setPhi(g)} />}
+        {has("phi") && <Menu label={(s2 === "sheet 2" ? "2" : s2) + " · " + name(phi)} value={phi} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"], [135, "other diagonal · crossed"]]} onPick={(g) => setPhi(g)} />}
         {has("light") && <Menu label={"light · " + light} value={light} items={[["beam", "beam"], ["wave", "wave"]]} onPick={(v) => setLight(v)} />}
-        {has("view") && <Menu label={"view · " + view} value={view} items={[["side view", "side view"], ["3D", "3D view"]]} onPick={pickView} />}
+        {has("view") && <Menu label={view} value={view} items={[["side view", "side view"], ["3D", "3D view"]]} onPick={pickView} />}
       </div>
     </div>
   );
@@ -2468,7 +2542,7 @@ function FigBlendRoom() {
   const [p1, setP1] = useState(1);
   const [p2, setP2] = useState(0);
   const [w, setW] = useState(0.5);
-  const x0 = 130, x1 = 770, y0 = 430, RX = (x1 - x0) / 2;
+  const x0 = 130, x1 = 770, y0 = 460, RX = (x1 - x0) / 2;
   const X = (p) => x0 + p * (x1 - x0), Y = (s) => y0 - s * (x1 - x0);
   const sg = (p) => Math.sqrt(Math.max(0, p * (1 - p)));
   const A = { x: X(p1), y: Y(sg(p1)) }, B = { x: X(p2), y: Y(sg(p2)) };
@@ -2544,14 +2618,14 @@ function FigBlendRoom() {
           <circle cx={M.x} cy={M.y} r={28} fill="rgba(0,0,0,0)" />
           <circle cx={M.x} cy={M.y} r={13} fill={GOLD} stroke="#FFFFFF" strokeWidth={2.5} />
         </g>
-        <Txt x={M.x} y={M.y + 34} size={14} fill={GOLD} bold>your blend (drag it)</Txt>
+        <Txt x={M.x} y={y0 - M.y < 24 ? M.y - 26 : M.y + 34} size={14} fill={GOLD} bold>your blend (drag it)</Txt>
         </g>)}
-        <Txt x={450} y={505} size={15} fill={INK}>{showRoom && mix ? `${pure.length} pure beliefs on the rim · avg ${mix.p.toFixed(2)}` : `weight ${w.toFixed(2)} · average ${avg.toFixed(2)} · spread ${spread.toFixed(2)}`}</Txt>
+        <Txt x={450} y={514} size={15} fill={INK}>{showRoom && mix ? `${pure.length} pure beliefs on the rim · avg ${mix.p.toFixed(2)}` : `weight ${w.toFixed(2)} · average ${avg.toFixed(2)} · spread ${spread.toFixed(2)}`}</Txt>
       </svg>
       <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 6, flexWrap: "wrap" }}>
         {!showRoom && [0, 0.25, 0.5, 0.75, 1].map((v) => <Button key={v} ghost={w !== v} onClick={() => setW(v)}>{`w = ${v}`}</Button>)}
         <Button ghost={!showRoom} onClick={() => setShowRoom(!showRoom)}>{showRoom ? "back to two candidates" : "show the room"}</Button>
-        {!showRoom && <Button ghost onClick={() => { setP1(0.85); setP2(0.25); setW(0.5); }}>reset</Button>}
+        {!showRoom && <Button ghost onClick={() => { setP1(1); setP2(0); setW(0.5); }}>reset</Button>}
       </div>
     </div>
   );
@@ -2580,7 +2654,7 @@ function FigWaveRoom() {
   }, []);
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const onDown = (e) => { if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); tgt.current = null; drag.current = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; };
-  const onMove = (e) => { if (!drag.current) return; const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y; setSt((s) => ({ ...s, yaw: cl(drag.current.yaw - dx * 0.35, -6, 100), pitch: cl(drag.current.pitch + dy * 0.35, -22, 22) })); };
+  const onMove = (e) => { const d0 = drag.current; if (!d0) return; const dx = e.clientX - d0.x, dy = e.clientY - d0.y; setSt((s) => ({ ...s, yaw: cl(d0.yaw - dx * 0.35, -6, 100), pitch: cl(d0.pitch + dy * 0.35, -22, 22) })); };
   const onUp = (e) => { if (drag.current && e && Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) > 2) swallowClick(); drag.current = null; };
   const br = st.beta * DEG, a = Math.cos(br), b = Math.sin(br), d = st.delta * DEG;
   const tipH = (tt) => a * Math.sin(tt), tipV = (tt) => b * Math.sin(tt - d);
@@ -2707,30 +2781,47 @@ function useSlideEnter(ref, onFlip) {
 /* run / pause for a slide: ▶ replays the paths (rev 0→1 over D ms) and then stays in run mode — live data keeps arriving —
    until ❙❙. Entering the slide (`enter`) re-arms it paused with nothing drawn; a change of `deps` (round, band) replays from 0
    without leaving run mode. The mode is published as state.collect: phones and bots only flip / fire while it is on. */
-function useReplay(ready, enter, deps, onArm, D = 2200) {
+/* build memory (per session): PLAYED = keys (round · band) whose path has been built once — they come back fully drawn;
+   STARTED = slides (round) that have been ▶-ed once — on those, switching to an unbuilt band builds it by itself, even while paused */
+const PLAYED = new Set(), STARTED = new Set(), RUNNING = new Set();   // RUNNING: slides left in run mode — they resume running on return
+function useReplay(ready, enter, deps, onArm, D = 2200, key, group) {
   const [u, setU] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [building, setBuilding] = useState(false);
   const [arm, setArm] = useState(0);
   const uRef = useRef(0); uRef.current = u;
   const raf = useRef(0);
+  const enterRef = useRef(enter);
   const all = [enter, ...deps];
-  React.useLayoutEffect(() => { cancelAnimationFrame(raf.current); setU(0); setArm((a) => a + 1); }, all);
-  React.useLayoutEffect(() => { setPlaying(false); }, [enter]);
+  React.useLayoutEffect(() => {
+    const byEnter = enterRef.current !== enter; enterRef.current = enter;
+    const built = !!key && PLAYED.has(key);
+    cancelAnimationFrame(raf.current);
+    setU(built ? 1 : 0);
+    setBuilding(!built && !byEnter && !!group && STARTED.has(group));
+    setArm((a) => a + 1);
+  }, all);
+  const keyRef = useRef(key); keyRef.current = key;
+  const groupRef = useRef(group); groupRef.current = group;
+  useEffect(() => { const g = groupRef.current; if (!g) return; if (playing) RUNNING.add(g); else RUNNING.delete(g); }, [playing]);
+  // on entering the slide — and again when its round arrives from the room — restore that slide's run / pause state
+  React.useLayoutEffect(() => { setPlaying(!!group && RUNNING.has(group)); }, [enter, group]);
   useEffect(() => { if (onArm) onArm(); }, all);
   useEffect(() => {
-    if (!playing || uRef.current >= 1) return;
+    if (!(playing || building) || uRef.current >= 1) return;
     const t0 = performance.now() - uRef.current * D;
-    const tick = (t) => { const v = Math.min(1, (t - t0) / D); setU(v); if (v < 1) raf.current = requestAnimationFrame(tick); };
+    // a band counts as built only once its build has run to the end (transient keys — a band still set from the previous slide — never complete)
+    const tick = (t) => { const v = Math.min(1, (t - t0) / D); setU(v); if (v < 1) raf.current = requestAnimationFrame(tick); else { if (keyRef.current) PLAYED.add(keyRef.current); setBuilding(false); } };
     raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current);
-  }, [playing, arm]);
+  }, [playing, building, arm]);
   useEffect(() => { const p = Room.presenter && Room.presenter(); if (p && p.publish) p.publish({ collect: playing }, true); }, [playing]);
   // mirror window (P): follows the presenter's ▶ / ❙❙ through state.collect (one-way); its own button still works locally
   const room = Room.usePresenter();
   const isMirror = room.role === "mirror", collect = !!room.state.collect;
   useEffect(() => { if (isMirror) setPlaying(collect); }, [isMirror, collect]);
   const rev = !ready ? 1 : u < 1 ? u * u * (3 - 2 * u) : 1;
-  return { rev, playing, toggle: () => setPlaying((p) => !p) };
+  return { rev, playing, toggle: () => { if (!playing && group) STARTED.add(group); setPlaying((p) => !p); } };
 }
 /* the same ▶ / ❙❙ for slides that collect without a replay: toggles state.collect (every slide change resets it to off) */
 function CollectButton() {
@@ -2762,12 +2853,15 @@ function FigWaveRoom2({ preset }) {
   const benchEnter = useSlideEnter(benchWrap);
   // preset "lamp" (the scene-7 opener): the same bench with ONE sheet — the front sheet, turnable; nothing else on the board
   const solo = preset === "lamp";
-  useEffect(() => { if (solo) room.publish({ lightMode: "beam", lens1: 0, lens2: 0, sheetIn: false, waveView: "side view" }, true); else if (preset === "bench") room.publish({ lightMode: "beam", lens1: 0, lens2: 0, sheetIn: true, waveView: "side view" }, true); setSt((s) => ({ ...s, run: false })); }, [benchEnter]);
+  useEffect(() => { const fresh = solo && !window.__benchSeeded; if (fresh) window.__benchSeeded = true; const seed = fresh ? { lightMode: "beam", waveView: "side view" } : { lightMode: room.state.lightMode ?? "beam", waveView: ["side view", "3D"].includes(room.state.waveView) ? room.state.waveView : "side view" }; if (solo) room.publish({ ...seed, lens1: 0, lens2: 0, sheetIn: false }, true); else if (preset === "bench") room.publish({ ...seed, lens1: 0, lens2: 0, sheetIn: true }, true); setSt((s) => ({ ...s, run: room.state.benchRun ?? true })); }, [benchEnter]);
   const beta = room.state.lens1 ?? 30, phi = room.state.lens2 ?? 0, sheetIn = room.state.sheetIn ?? true;
-  const view0 = room.state.waveView ?? "wiggles", beamMode0 = (room.state.lightMode ?? "wave") === "beam", view = beamMode0 && view0 === "wiggles" ? "3D" : view0, mode = view === "wiggles" ? "wiggles" : "space";
-  const light = room.state.lightMode ?? "wave";                       // "beam": the bench picture (beam + grains) · "wave": the two wiggles
+  const view0 = room.state.waveView ?? "side view", beamMode0 = (room.state.lightMode ?? "beam") === "beam", view = beamMode0 && view0 === "wiggles" ? "3D" : view0, mode = view === "wiggles" ? "wiggles" : "space";
+  const light = room.state.lightMode ?? "beam";                       // "beam": the bench picture (beam + grains) · "wave": the two wiggles
   const beamMode = light === "beam";
   const [st, setSt] = useState({ delta: 0, run: false, yaw: 64, pitch: 16 });
+  const benchRun = room.state.benchRun ?? true;                                                       // play / pause shared across the scene-7 bench slides
+  useEffect(() => { setSt((s) => (s.run === benchRun ? s : { ...s, run: benchRun })); }, [benchRun]);
+  const toggleRun = () => room.publish({ benchRun: !benchRun }, true);
   const first = useRef(true);
   useEffect(() => { const T = { "side view": { yaw: 90, pitch: 22 }, "3D": { yaw: 64, pitch: 16 }, "down the axis": { yaw: 0, pitch: 0 } }[view]; if (!T) return; if (first.current) { first.current = false; setSt((s) => ({ ...s, ...T })); return; } tgt.current = T; }, [view]);
   const [t, setT] = useState(0);
@@ -2790,7 +2884,7 @@ function FigWaveRoom2({ preset }) {
   }, []);
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const onDown = (e) => { if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); tgt.current = null; drag.current = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch }; };
-  const onMove = (e) => { if (!drag.current) return; const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y; setSt((s) => ({ ...s, yaw: cl(drag.current.yaw - dx * 0.35, -6, 100), pitch: cl(drag.current.pitch + dy * 0.35, -22, 22) })); };
+  const onMove = (e) => { const d0 = drag.current; if (!d0) return; const dx = e.clientX - d0.x, dy = e.clientY - d0.y; setSt((s) => ({ ...s, yaw: cl(d0.yaw - dx * 0.35, -6, 100), pitch: cl(d0.pitch + dy * 0.35, -22, 22) })); };
   const onUp = (e) => { if (drag.current && e && Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) > 2) swallowClick(); drag.current = null; };
   const br = beta * DEG, a = Math.cos(br), b = Math.sin(br), d = st.delta * DEG;
   const bS = b * Math.cos(d);                                         // signed V size (the flip switch)
@@ -2894,7 +2988,7 @@ function FigWaveRoom2({ preset }) {
             <line x1={A[0]} y1={A[1]} x2={C[0]} y2={C[1]} stroke={GOLD} strokeWidth={32} strokeLinecap="butt" opacity={0.32} />
             <line x1={A[0]} y1={A[1]} x2={C[0]} y2={C[1]} stroke={GOLD} strokeWidth={8} strokeLinecap="butt" opacity={0.85} />
             {zCut < ZF - 1e-6 && <line x1={C[0]} y1={C[1]} x2={B[0]} y2={B[1]} stroke={GOLD} strokeWidth={8} strokeLinecap="butt" opacity={0.3} strokeDasharray="7 6" />}
-            {Array.from({ length: 22 }, (_, k) => { const r = (m) => { const x = Math.sin(k * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); }; const z = -L + ((k / 22 + t * 0.09) % 1) * (ZF + L); const q = proj((r(2) - 0.5) * 0.34, (r(3) - 0.5) * 0.34, z); const hid = inFrame(q); return <circle key={k} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid ? 0.3 : 0.95} />; })}
+            {Array.from({ length: 22 }, (_, k) => { const r = (m) => { const x = Math.sin(k * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); }; const z = -L + ((k / 22 + t * 0.27) % 1) * (ZF + L); const q = proj((r(2) - 0.5) * 0.34, (r(3) - 0.5) * 0.34, z); const hid = inFrame(q); return <circle key={k} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid ? 0.3 : 0.95} />; })}
           </g>);
         })()}
         <circle cx={axA[0]} cy={axA[1]} r={22} fill="#FDEFE3" stroke={GOLD} strokeWidth={2.5} opacity={1 - hoF} />
@@ -2924,7 +3018,7 @@ function FigWaveRoom2({ preset }) {
               </g>); })}</g>);
           };
           const rnd = (kk, m) => { const x = Math.sin(kk * 127.1 + m * 311.7) * 43758.5453; return x - Math.floor(x); };
-          const grains = Array.from({ length: 64 }, (_, kk) => { const z = ZF + ((kk / 64 + t * 0.09) % 1) * (L - ZF); const lot = rnd(kk, 1); if (lot >= Iat(z)) return null; const q = proj((rnd(kk, 2) - 0.5) * 0.34, (rnd(kk, 3) - 0.5) * 0.34, z); return <circle key={kk} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid(z, q) ? 0.3 : 0.95} />; });
+          const grains = Array.from({ length: 64 }, (_, kk) => { const z = ZF + ((kk / 64 + t * 0.054) % 1) * (L - ZF); const lot = rnd(kk, 1); if (lot >= Iat(z)) return null; const q = proj((rnd(kk, 2) - 0.5) * 0.34, (rnd(kk, 3) - 0.5) * 0.34, z); return <circle key={kk} cx={q[0]} cy={q[1]} r={3.2} fill="#FFFFFF" stroke={GOLD} strokeWidth={1.5} opacity={hid(z, q) ? 0.3 : 0.95} />; });
           return (<g opacity={1 - hoF}>
             <polygon points={sqE} fill="none" stroke={LBLUE} strokeWidth={2} strokeDasharray="3 4" />
             {on && <polygon points={sqS} fill="#FFFFFF" fillOpacity={0.45} stroke={INK} strokeWidth={2.5} />}
@@ -2972,37 +3066,29 @@ function FigWaveRoom2({ preset }) {
       </svg>
       )}
       {solo ? (<>
-      {/* the two slider rows the full bench shows, kept as invisible spacers so the bench sits at the same height on every slide */}
-      <div style={{ width: "100%", marginTop: 6, boxSizing: "border-box", visibility: "hidden" }} aria-hidden="true">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><span style={{ fontFamily: MONO, fontSize: 15 }}>·</span></div>
-        <input type="range" min="0" max="1" readOnly value="0" style={{ width: "100%", marginTop: 2 }} />
-      </div>
-      <div style={{ width: "100%", marginTop: 2, boxSizing: "border-box", visibility: "hidden" }} aria-hidden="true">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><span style={{ fontFamily: MONO, fontSize: 15 }}>·</span></div>
-        <input type="range" min="0" max="1" readOnly value="0" style={{ width: "100%", marginTop: 2 }} />
+      {/* the legend panel the full bench shows, kept as an invisible spacer so the bench sits at the same height on every slide */}
+      <div style={{ display: "flex", gap: 0, marginTop: 8, border: `1px solid ${LBLUE}`, borderRadius: 8, visibility: "hidden" }} aria-hidden="true">
+        <div style={{ flex: 1, padding: "7px 14px" }}><div style={{ fontFamily: MONO, fontSize: 13 }}>·</div><div style={{ fontFamily: MONO, fontSize: 15, marginTop: 2 }}>·</div></div>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 6 }}>
-        <Button ghost onClick={() => setSt((s) => ({ ...s, run: !s.run }))}>{st.run ? "❙❙" : "▶"}</Button>
+        <Button ghost onClick={toggleRun}>{st.run ? "❙❙" : "▶"}</Button>
         <Menu label={"the sheet · " + (beta === 0 ? "horizontal" : beta === 90 ? "vertical" : beta === 45 ? "diagonal" : beta + "°")} value={[0, 45, 90].includes(beta) ? beta : null} items={[[0, "horizontal"], [45, "diagonal"], [90, "vertical"]]} onPick={(g) => room.publish({ lens1: g }, true)} />
         <Menu label={"view · " + view} value={view} items={[["side view", "side view"], ["3D", "3D view"]]} onPick={(v) => room.publish({ waveView: v }, true)} />
       </div>
       </>) : (<>
-      <div style={{ width: "100%", marginTop: 6, boxSizing: "border-box" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: SOFT }}>β — the wave's tilt (sets both wiggle sizes)</span>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: INK, fontWeight: 700 }}>{"β=" + Math.round(beta) + "° → a=" + a.toFixed(2) + ", b=" + (bS < 0 ? "−" : "+") + b.toFixed(2)}</span>
+      {/* legend hidden (too busy here) but kept as an invisible spacer so the bench sits at one height across scene 7; the readings live on the Malus slide */}
+      <div style={{ display: "flex", gap: 0, marginTop: 8, border: `1px solid ${LBLUE}`, borderRadius: 8, background: "#FFFFFF", fontFamily: MONO, visibility: "hidden" }} aria-hidden="true">
+        <div style={{ flex: 1, padding: "7px 14px", borderRight: `1px solid ${LBLUE}` }}>
+          <div style={{ fontSize: 13, color: SOFT }}>β — the wave's tilt · sheet 1</div>
+          <div style={{ fontSize: 15, color: INK, fontWeight: 700, marginTop: 2 }}>{"β = " + Math.round(beta) + "°  →  "}<span style={{ color: GOLD }}>{"a = " + a.toFixed(2)}</span>{"  ·  "}<span style={{ color: TEAL }}>{"b = " + (bS < 0 ? "−" : "+") + b.toFixed(2)}</span></div>
         </div>
-        <input type="range" min="0" max="180" step="1" value={beta} onChange={(e) => room.publish({ lens1: +e.target.value })} style={{ width: "100%", accentColor: GOLD, marginTop: 2 }} />
-      </div>
-      <div style={{ width: "100%", marginTop: 2, boxSizing: "border-box", opacity: on ? 1 : 0.35, pointerEvents: on ? "auto" : "none" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: SOFT }}>φ — the sheet's slot direction</span>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: INK, fontWeight: 700 }}>{on ? `φ=${phi}° → keeps ${k.toFixed(2)} · brightness cos² = ${Math.round(bright * 100)}%` : "sheet 2 is out"}</span>
+        <div style={{ flex: 1.3, padding: "7px 14px", opacity: on ? 1 : 0.45 }}>
+          <div style={{ fontSize: 13, color: SOFT }}>φ — the sheet's slot direction · sheet 2</div>
+          <div style={{ fontSize: 15, color: INK, fontWeight: 700, marginTop: 2 }}>{on ? <>{"φ = " + phi + "°  →  keeps " + k.toFixed(2) + "  ·  "}<span style={{ color: PURP }}>{"brightness cos² = " + Math.round(bright * 100) + "%"}</span></> : "sheet 2 is out"}</div>
         </div>
-        <input type="range" min="0" max="180" step="1" value={phi} onChange={(e) => room.publish({ lens2: +e.target.value })} style={{ width: "100%", accentColor: INK, marginTop: 2 }} />
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 6 }}>
-        <Button ghost onClick={() => setSt((s) => ({ ...s, run: !s.run }))}>{st.run ? "❙❙" : "▶"}</Button>
+        <Button ghost onClick={toggleRun}>{st.run ? "❙❙" : "▶"}</Button>
         <Menu label={"sheet 1 · " + beta + "°"} value={[0, 45, 90].includes(beta) ? beta : null} items={[[0, "0° · horizontal"], [45, "45° · diagonal"], [90, "90° · vertical"]]} onPick={(g) => room.publish({ lens1: g }, true)} />
         <Menu label={"light · " + (beamMode ? "beam" : "wave")} value={light} items={[["beam", "beam"], ["wave", "wave"]]} onPick={(v) => { room.publish({ lightMode: v }, true); if (v === "beam" && view === "wiggles") room.publish({ waveView: "3D" }, true); }} />
         <Button active={on} ghost={!on} onClick={() => room.publish(sheetIn ? { sheetIn: false } : { sheetIn: true, lens2: beta }, true)}>{on ? "sheet 2: out" : "sheet 2: in"}</Button>
@@ -3094,19 +3180,16 @@ function FigMalusRoom({ inset }) {
         <Txt x={ix} y={iy + R + 18} size={12} fill={SOFT}>down the axis</Txt>
         </g>}
       </svg>
-      <div style={{ width: "100%", marginTop: 6, boxSizing: "border-box" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: SOFT }}>β — the wave's tilt (sets both wiggle sizes)</span>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: INK, fontWeight: 700 }}>{"β=" + Math.round(beta) + "° → a=" + a.toFixed(2) + ", b=" + b.toFixed(2)}</span>
+      {/* legend — β and φ are dragged on the plot or picked from the menus */}
+      <div style={{ display: "flex", gap: 0, marginTop: 8, border: `1px solid ${LBLUE}`, borderRadius: 8, background: "#FFFFFF", fontFamily: MONO }}>
+        <div style={{ flex: 1, padding: "7px 14px", borderRight: `1px solid ${LBLUE}` }}>
+          <div style={{ fontSize: 13, color: SOFT }}>β — the wave's tilt · sheet 1</div>
+          <div style={{ fontSize: 15, color: INK, fontWeight: 700, marginTop: 2 }}><span style={{ color: TEAL }}>{"β = " + Math.round(beta) + "°"}</span>{"  →  a = " + a.toFixed(2) + "  ·  b = " + b.toFixed(2)}</div>
         </div>
-        <input type="range" min="0" max="180" step="1" value={beta} onChange={(e) => room.publish({ lens1: +e.target.value })} style={{ width: "100%", accentColor: TEAL, marginTop: 2 }} />
-      </div>
-      <div style={{ width: "100%", marginTop: 2, boxSizing: "border-box" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: SOFT }}>φ — the sheet's slot direction</span>
-          <span style={{ fontFamily: MONO, fontSize: 15, color: INK, fontWeight: 700 }}>{`φ=${Math.round(phi)}° → keeps ${k.toFixed(2)} · brightness cos² = ${Math.round(bright * 100)}%`}</span>
+        <div style={{ flex: 1.3, padding: "7px 14px" }}>
+          <div style={{ fontSize: 13, color: SOFT }}>φ — the sheet's slot direction · sheet 2</div>
+          <div style={{ fontSize: 15, color: INK, fontWeight: 700, marginTop: 2 }}><span style={{ color: GOLD }}>{"φ = " + Math.round(phi) + "°"}</span>{"  →  keeps " + k.toFixed(2) + "  ·  brightness cos² = " + Math.round(bright * 100) + "%"}</div>
         </div>
-        <input type="range" min="0" max="180" step="1" value={phi} onChange={(e) => room.publish({ lens2: +e.target.value })} style={{ width: "100%", accentColor: GOLD, marginTop: 2 }} />
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 6 }}>
         <Menu label={"sheet 1 · " + Math.round(beta) + "°"} value={[0, 45, 90].includes(beta) ? beta : null} items={[[0, "0° · horizontal"], [45, "45° · diagonal"], [90, "90° · vertical"]]} onPick={(g) => room.publish({ lens1: g }, true)} />
@@ -3130,9 +3213,9 @@ function FigRoundPlane() {
   const paths = true, col = ROUND[round].col;
   const pick = (r) => setRound(r);
   const wrap = useRef(null);
-  const enter = useSlideEnter(wrap, () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = "hidden"; });
+  const enter = useSlideEnter(wrap, (now) => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = now ? "" : "hidden"; });
   // the svg was blanked on slide change; it is shown again once re-armed at rev 0
-  const { rev, playing, toggle } = useReplay(paths && hist.length > 0, enter, [round], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; });
+  const { rev, playing, toggle } = useReplay(paths && hist.length > 0, enter, [round], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; }, 2200, "plane:" + round, "plane");
   const live = rev >= 1;
   const vis = live ? hist : hist.slice(0, Math.ceil(rev * hist.length));
   const cutN = live ? T.n : (vis.length ? vis[vis.length - 1][0] : 0);
@@ -3173,7 +3256,7 @@ function FigRoundPlane() {
     const ro = new ResizeObserver(fit); ro.observe(svg); ro.observe(panel);
     return () => ro.disconnect();
   }, []);
-  const plane = Plane({ showBand: paths, showArc: paths, children: ({ X, Y }) => (<>
+  const plane = Plane({ showBand: paths, showArc: paths, bold: true, children: ({ X, Y }) => (<>
     {paths && T.phones.map((p) => {
       const ph = (phist[p.from] || []).filter((h) => h[2] >= 2 && h[0] <= cutN);
       return ph.length > 1 && <polyline key={"t" + p.from} points={ph.map((h) => `${X(h[1]).toFixed(1)},${Y(psd(h[1])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="1.25" opacity="0.22" strokeLinejoin="round" />;
@@ -3188,7 +3271,6 @@ function FigRoundPlane() {
     {paths && trail.length > 1 && <polyline points={trail.map((h) => `${X(h[1]).toFixed(1)},${Y(roomW(h)).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
     {pool && <circle cx={X(pool.p)} cy={Y(paths ? pool.w : 0)} r="12" fill={col} stroke="#FFFFFF" strokeWidth={2.25} />}
     {pool && <Txt x={X(pool.p)} y={Y(paths ? pool.w : 0) - 20} size={14} fill={INK} bold>room</Txt>}
-    {T.n === 0 && <Txt x={X(0.5)} y={Y(0.3)} size={17}>{`no flips yet — flip in ${ROUND[round].name} first (scene 1)`}</Txt>}
     <Txt x={X(0.5)} y={34} size={16} fill={INK} bold>{`${ROUND[round].name} — ${ROUND[round].title}`}</Txt>
     {T.n > 0 && !paths && <Txt x={X(0.5)} y={Y(0.3)} size={15}>one number each: the fraction of heads — the room's is their average</Txt>}
     {T.n > 0 && paths && live && <Txt x={X(0.5)} y={Y(0) + 54} size={14} fill={INK}>{mode === "exp" ? `± E(sd): each coin's own bandwidth — the room's is their average · ${T.n} flips · ${T.phones.length} participants` : `± sd: one anonymous bag of flips — √F(1−F) of the pooled fraction · ${T.n} flips · ${T.phones.length} participants`}</Txt>}
@@ -3213,8 +3295,8 @@ function FigTwoBands() {
   const phist = room.memo["phist:" + round] || {};
   const col = ROUND[round].col;
   const wrap = useRef(null);
-  const enter = useSlideEnter(wrap, () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = "hidden"; });
-  const { rev, playing, toggle } = useReplay(hist.length > 0, enter, [round], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; });
+  const enter = useSlideEnter(wrap, (now) => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = now ? "" : "hidden"; });
+  const { rev, playing, toggle } = useReplay(hist.length > 0, enter, [round], () => { const el = wrap.current && wrap.current.querySelector("svg"); if (el) el.style.visibility = ""; }, 2200, "bands:" + round, "bands");
   const live = rev >= 1;
   const vis = live ? hist : hist.slice(0, Math.ceil(rev * hist.length));
   const cutN = live ? T.n : (vis.length ? vis[vis.length - 1][0] : 0);
@@ -3254,7 +3336,7 @@ function FigTwoBands() {
   }, []);
   const pts = (wf) => trail.map((h) => `${X_(h[1]).toFixed(1)},${Y_(wf(h)).toFixed(1)}`).join(" ");
   let X_ = (v) => v, Y_ = (v) => v;
-  const plane = Plane({ showBand: true, showArc: true, children: ({ X, Y }) => { X_ = X; Y_ = Y; return (<>
+  const plane = Plane({ showBand: true, showArc: true, bold: true, children: ({ X, Y }) => { X_ = X; Y_ = Y; return (<>
     {T.phones.map((p) => {
       const ph = (phist[p.from] || []).filter((h) => h[2] >= 2 && h[0] <= cutN);
       return ph.length > 1 && <polyline key={"t" + p.from} points={ph.map((h) => `${X(h[1]).toFixed(1)},${Y(psd(h[1])).toFixed(1)}`).join(" ")} fill="none" stroke={col} strokeWidth="1.25" opacity="0.22" strokeLinejoin="round" />;
@@ -3278,7 +3360,6 @@ function FigTwoBands() {
       <line x1={X(0.795)} y1={Y(0.54)} x2={X(0.85)} y2={Y(0.54)} stroke={col} strokeWidth="3" strokeLinecap="round" />
       <Txt x={X(0.865)} y={Y(0.54) + 5} anchor="start" size={14} fill={INK} bold>± E(sd) · known</Txt>
     </g>}
-    {T.n === 0 && <Txt x={X(0.5)} y={Y(0.3)} size={17}>{`no flips yet — flip in ${ROUND[round].name} first (scene 1)`}</Txt>}
     <Txt x={X(0.5)} y={34} size={16} fill={INK} bold>{`${ROUND[round].name} — ${ROUND[round].title}`}</Txt>
     {end && live && <Txt x={X(0.5)} y={Y(0) + 54} size={14} fill={INK}>{`dashed: ± sd, one anonymous bag · solid: ± E(sd), whose flip is whose · the gap is what knowing removes`}</Txt>}
   </>); } });

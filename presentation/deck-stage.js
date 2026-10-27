@@ -137,7 +137,7 @@
   const FINE_POINTER_MQ = matchMedia('(hover: hover) and (pointer: fine)');
   const NARROW_MQ = matchMedia('(max-width: 640px)');
   // Slide-authored controls that should keep a tap instead of it navigating.
-  const INTERACTIVE_SEL = 'a[href], button, input, select, textarea, summary, label, video[controls], audio[controls], [role="button"], [onclick], [tabindex]:not([tabindex^="-"]), [contenteditable]:not([contenteditable="false" i])';
+  const INTERACTIVE_SEL = 'a[href], button, input, select, textarea, summary, label, video[controls], audio[controls], svg, canvas, [data-no-tap], [role="button"], [onclick], [tabindex]:not([tabindex^="-"]), [contenteditable]:not([contenteditable="false" i])';
 
   const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -718,6 +718,12 @@
       window.addEventListener('message', this._onMessage);
       window.addEventListener('click', this._onDocClick, true);
       this.addEventListener('click', this._onTap);
+      // Remember where the pointer went down so a drag-release (slider,
+      // draggable figure) never reads as a tap-to-advance.
+      this._onTapDown = (e) => { this._tapDown = { x: e.clientX, y: e.clientY }; };
+      this._onTapUp = (e) => { const d = this._tapDown; if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) this._dragUntil = performance.now() + 400; };
+      this.addEventListener('pointerdown', this._onTapDown, true);
+      window.addEventListener('pointerup', this._onTapUp, true);
       // Print lays every slide out as its own page, so [data-deck-active]-
       // gated entrance styles need the attribute on every slide (not just
       // the current one) or their content prints at the hidden base style.
@@ -1049,6 +1055,8 @@
       window.removeEventListener('afterprint', this._onAfterPrint);
       if (this._freezeStyle) { this._freezeStyle.remove(); this._freezeStyle = null; }
       this.removeEventListener('click', this._onTap);
+      this.removeEventListener('pointerdown', this._onTapDown, true);
+      window.removeEventListener('pointerup', this._onTapUp, true);
       if (this._hideTimer) clearTimeout(this._hideTimer);
       if (this._mouseIdleTimer) clearTimeout(this._mouseIdleTimer);
       if (this._liveTimer) clearTimeout(this._liveTimer);
@@ -1737,6 +1745,8 @@
       // inside a slide-authored custom element retargets e.target to the
       // host but still appears in the composed path.
       if (e.defaultPrevented) return;
+      const d = this._tapDown;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
       for (const n of path) {
         if (n === this._stage) break;
         if (n.matches && n.matches(INTERACTIVE_SEL)) return;
@@ -1840,6 +1850,8 @@
      *  nothing further in that direction. */
     _advance(dir, reason) {
       if (!this._slides.length) return;
+      // A pointer that just dragged (slider, draggable figure) is not asking to navigate.
+      if (reason !== 'keyboard' && this._dragUntil && performance.now() < this._dragUntil) return;
       let i = this._index + dir;
       while (i >= 0 && i < this._slides.length && this._slides[i].hasAttribute('data-deck-skip')) {
         i += dir;
