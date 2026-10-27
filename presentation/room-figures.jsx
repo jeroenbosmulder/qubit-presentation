@@ -2816,7 +2816,7 @@ function useReplay(ready, enter, deps, onArm, D = 2200, key, group) {
     return () => cancelAnimationFrame(raf.current);
   }, [playing, building, arm]);
   useEffect(() => { const p = Room.presenter && Room.presenter(); if (p && p.publish) p.publish({ collect: playing }, true); }, [playing]);
-  // mirror window (P): follows the presenter's ▶ / ❙❙ through state.collect (one-way); its own button still works locally
+  // mirror window (P): fully interactive on its own; the presenter's ▶ / ❙❙ arrives through state.collect and overrides (one-way)
   const room = Room.usePresenter();
   const isMirror = room.role === "mirror", collect = !!room.state.collect;
   useEffect(() => { if (isMirror) setPlaying(collect); }, [isMirror, collect]);
