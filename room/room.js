@@ -157,12 +157,14 @@
       if (!pending || role !== 'presenter') { pending = null; return; }
       t.postMessage({ type: 'state', patch: pending }); pending = null;
     }
-    function publish(patch, immediate) {
+    /* lead: a mirror's own ▶ / ❙❙ — the one patch a mirror puts on the wire, so phones and bots collect for it too
+       (the presenter never applies it; its next ▶ / ❙❙ / slide change still overrides everyone) */
+    function publish(patch, immediate, lead) {
       if (role !== 'presenter' && role !== 'mirror') return;
       var cur = store.get();
       var next = shallowMerge(cur.state, patch);
       store.set(shallowMerge(cur, { state: next }));
-      if (role === 'mirror') return;                           // local only: the mirror never leads
+      if (role === 'mirror') { if (lead) t.postMessage({ type: 'state', patch: patch }); return; }   // otherwise local only: the mirror never leads
       pending = shallowMerge(pending || {}, patch);
       if (immediate) { if (timer) clearTimeout(timer); flush(); }
       else if (!timer) timer = setTimeout(flush, 80);
