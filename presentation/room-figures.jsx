@@ -2053,9 +2053,26 @@ function FigGlassBench({ preset = "full" }) {
             <line x1={qa[0]} y1={qa[1]} x2={qh[0]} y2={qh[1]} stroke={GOLD} strokeWidth={1.6} strokeDasharray="3 5" opacity={0.5} />
             <line x1={qa[0]} y1={qa[1]} x2={qv[0]} y2={qv[1]} stroke={TEAL} strokeWidth={1.6} strokeDasharray="3 5" opacity={0.5} />
             <line x1={qa[0]} y1={qa[1]} x2={q2[0]} y2={q2[1]} stroke={INK} strokeWidth={1.6} opacity={0.13} /></g>); })}
-          <polyline points={plW((z) => proj(field(z, t)[0], 0, z))} fill="none" stroke={GOLD} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />
-          <polyline points={plW((z) => proj(0, field(z, t)[1], z))} fill="none" stroke={TEAL} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />
-          <polyline points={plW((z) => { const f = field(z, t); return proj(f[0], f[1], z); })} fill="none" stroke={INK} strokeWidth={4.5} strokeLinejoin="round" />
+          {(() => {
+            // occlusion, as on the beam: samples behind a sheet / glass face / exit frame are split into faint dashed runs
+            const runsW = (fn) => { const vis = [], hd = []; let cv = [], ch = [], prev = null;
+              zsW.forEach((z) => { const q = fn(z), h = hid(z, q), p = q[0].toFixed(1) + "," + q[1].toFixed(1);
+                if (prev !== null && h !== prev) { if (h) { cv.push(p); vis.push(cv.join(" ")); cv = []; ch = [p]; } else { ch.push(p); hd.push(ch.join(" ")); ch = []; cv = [p]; } }
+                else (h ? ch : cv).push(p);
+                prev = h; });
+              if (cv.length > 1) vis.push(cv.join(" ")); if (ch.length > 1) hd.push(ch.join(" "));
+              return { vis, hd }; };
+            const hW = runsW((z) => proj(field(z, t)[0], 0, z)), vW = runsW((z) => proj(0, field(z, t)[1], z)), sW = runsW((z) => { const f = field(z, t); return proj(f[0], f[1], z); });
+            const FARW = 0.3;
+            return (<g>
+              {hW.hd.map((p, i) => <polyline key={"hh" + i} points={p} fill="none" stroke={GOLD} strokeWidth={2.5} strokeLinejoin="round" opacity={0.9 * FARW} strokeDasharray="7 6" />)}
+              {vW.hd.map((p, i) => <polyline key={"vh" + i} points={p} fill="none" stroke={TEAL} strokeWidth={2.5} strokeLinejoin="round" opacity={0.9 * FARW} strokeDasharray="7 6" />)}
+              {sW.hd.map((p, i) => <polyline key={"sh" + i} points={p} fill="none" stroke={INK} strokeWidth={3.5} strokeLinejoin="round" opacity={FARW} strokeDasharray="7 6" />)}
+              {hW.vis.map((p, i) => <polyline key={"hv" + i} points={p} fill="none" stroke={GOLD} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />)}
+              {vW.vis.map((p, i) => <polyline key={"vv" + i} points={p} fill="none" stroke={TEAL} strokeWidth={3} strokeLinejoin="round" opacity={0.9} />)}
+              {sW.vis.map((p, i) => <polyline key={"sv" + i} points={p} fill="none" stroke={INK} strokeWidth={4.5} strokeLinejoin="round" />)}
+            </g>);
+          })()}
           {glass && trailAt(zTrail, INK)}{trailAt(zE, PURP)}
         </g>}
         <g>
@@ -2821,13 +2838,14 @@ function useReplay(ready, enter, deps, onArm, D = 2200, key, group) {
   const isMirror = room.role === "mirror", collect = !!room.state.collect;
   useEffect(() => { if (isMirror) setPlaying(collect); }, [isMirror, collect]);
   const rev = !ready ? 1 : u < 1 ? u * u * (3 - 2 * u) : 1;
-  return { rev, playing, toggle: () => { if (!playing && group) STARTED.add(group); setPlaying((p) => !p); } };
+  // the mirror's own ▶ / ❙❙ also opens / closes collection for the phones and bots (its one outbound patch), so paths build there without the presenter
+  return { rev, playing, toggle: () => { const next = !playing; if (next && group) STARTED.add(group); if (isMirror) room.publish({ collect: next }, true, true); setPlaying(next); } };
 }
 /* the same ▶ / ❙❙ for slides that collect without a replay: toggles state.collect (every slide change resets it to off) */
 function CollectButton() {
   const room = Room.usePresenter();
   const on = !!room.state.collect;
-  return <Button ghost onClick={() => room.publish({ collect: !on }, true)}>{on ? "❙❙" : "▶"}</Button>;
+  return <Button ghost onClick={() => room.publish({ collect: !on }, true, true)}>{on ? "❙❙" : "▶"}</Button>;
 }
 /* a compact drop-down: one button, a list of options above it (click-away closes) */
 function Menu({ label, value, items, onPick }) {
@@ -2925,10 +2943,10 @@ function FigWaveRoom2({ preset }) {
     if (cv.length > 1) vis.push(cv.join(" ")); if (ch.length > 1) hid.push(ch.join(" "));
     return { vis, hid }; };
   const hR = runs((z) => proj(Ex(z, t), 0, z)), vR = runs((z) => proj(0, Ey(z, t), z)), sR = runs((z) => proj(Ex(z, t), Ey(z, t), z));
-  const FAR = 0.38;
+  const FAR = 0.22;
   const stems = zs.filter((_, i) => i % 6 === 0).map((z, i) => {
     const qa = proj(0, 0, z), qh = proj(Ex(z, t), 0, z), qv = proj(0, Ey(z, t), z), q2 = proj(Ex(z, t), Ey(z, t), z);
-    const f = hidden(z, q2) ? 0.38 : 1;
+    const f = hidden(z, q2) ? FAR : 1;
     return (
       <g key={"s" + i}>
         <line x1={qa[0]} y1={qa[1]} x2={qh[0]} y2={qh[1]} stroke={GOLD} strokeWidth={1.6} strokeDasharray="3 5" opacity={0.5 * f} />
@@ -3028,9 +3046,9 @@ function FigWaveRoom2({ preset }) {
         })()}
         {on && !beamMode && <g>
           <polygon points={sqE} fill="none" stroke={LBLUE} strokeWidth={2} strokeDasharray="3 4" />
-          {!beamMode && hR.hid.map((p, i) => <polyline key={"hh" + i} points={p} fill="none" stroke={GOLD} strokeWidth={3} strokeLinejoin="round" opacity={0.9 * FAR} strokeDasharray="7 6" />)}
-          {!beamMode && vR.hid.map((p, i) => <polyline key={"vh" + i} points={p} fill="none" stroke={TEAL} strokeWidth={3} strokeLinejoin="round" opacity={0.9 * FAR} strokeDasharray="7 6" />)}
-          {!beamMode && sR.hid.map((p, i) => <polyline key={"sh" + i} points={p} fill="none" stroke={INK} strokeWidth={4.5} strokeLinejoin="round" opacity={FAR} strokeDasharray="7 6" />)}
+          {!beamMode && hR.hid.map((p, i) => <polyline key={"hh" + i} points={p} fill="none" stroke={GOLD} strokeWidth={2.5} strokeLinejoin="round" opacity={0.9 * FAR} strokeDasharray="7 6" />)}
+          {!beamMode && vR.hid.map((p, i) => <polyline key={"vh" + i} points={p} fill="none" stroke={TEAL} strokeWidth={2.5} strokeLinejoin="round" opacity={0.9 * FAR} strokeDasharray="7 6" />)}
+          {!beamMode && sR.hid.map((p, i) => <polyline key={"sh" + i} points={p} fill="none" stroke={INK} strokeWidth={3.5} strokeLinejoin="round" opacity={FAR} strokeDasharray="7 6" />)}
           <polygon points={sqS} fill="#FFFFFF" fillOpacity={0.45} stroke={INK} strokeWidth={2.5} />
           <Stripes z={ZS} ang={phi} col={INK} />
         </g>}

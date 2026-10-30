@@ -27,6 +27,17 @@ function useSynced(figKey, initial) {
   });
   return [st, set];
 }
+/* P's angle is shared by the twin / asking / sign figures (slides 28–30): one module-level value, mirrored into each figure's state */
+const SHARED = { th: 90, subs: new Set() };
+function useSharedTh(setSt) {
+  useEffect(() => {
+    setSt((s) => (s.th === SHARED.th ? s : { ...s, th: SHARED.th }));
+    const fn = (th) => setSt((s) => (s.th === th ? s : { ...s, th }));
+    SHARED.subs.add(fn);
+    return () => SHARED.subs.delete(fn);
+  }, []);
+  return (th) => { SHARED.th = th; SHARED.subs.forEach((fn) => fn(th)); };
+}
 
 const INK = "#002157", SOFT = "#5C6E8F", GOLD = "#EE7203", TEAL = "#00A1E4",
       RED = "#F71D25", LBLUE = "#AFE0F7", PEACH = "#FDE9D3", GRID = "#E1F3FC";
@@ -36,6 +47,12 @@ const DEG = 180 / Math.PI;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const norm360 = (a) => ((a % 360) + 360) % 360;
 
+/* after a drag release the browser still fires a click — eat it (capture, once) so nothing outside the figure treats the release as a tap */
+function swallowClick() {
+  const eat = (ev) => { ev.stopImmediatePropagation(); ev.preventDefault(); };
+  window.addEventListener("click", eat, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener("click", eat, { capture: true }), 400);
+}
 function useFig(onMove) {
   const ref = useRef(null);
   const act = useRef(null);
@@ -45,9 +62,10 @@ function useFig(onMove) {
   };
   return {
     ref,
-    down: (id) => (e) => { act.current = id; e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); },
+    down: (id) => (e) => { act.current = id; e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); },
     move: (e) => { if (act.current != null) onMove(act.current, loc(e)); },
-    up: () => { act.current = null; },
+    // a drag-release is not a tap-to-advance: swallow the click the deck would read
+    up: (e) => { if (act.current == null) return; act.current = null; swallowClick(); if (e && e.stopPropagation) e.stopPropagation(); },
   };
 }
 
@@ -781,20 +799,23 @@ function FigDisk() {
 
 // ── STEP 8 : the mirror twins ──
 function FigTwin() {
-  const [st, setSt] = useSynced("twin", { th: 40 });
+  const [st, setSt] = useSynced("twin", { th: SHARED.th });
+  const shareTh = useSharedTh(setSt);
   const th = st.th;
   const f = useFig((id, pt) => {
     const a = norm360(Math.atan2(300 - pt.y, pt.x - 450) * DEG);
-    setSt({ th: id === "twin" ? norm360(-a) : a });
+    const nt = id === "twin" ? norm360(-a) : a;
+    setSt({ th: nt }); shareTh(nt);
   });
   const ar = th / DEG;
   const P = { x: 450 + 230 * Math.cos(ar), y: 300 - 230 * Math.sin(ar) };
   const Q = { x: P.x, y: 600 - P.y };
   const T = { x: 220, y: 300 }, H = { x: 680, y: 300 };
-  const out = (pt) => { const dx = pt.x - 450, dy = pt.y - 300, L = Math.hypot(dx, dy) || 1; return { x: pt.x + 38 * dx / L, y: pt.y + 38 * dy / L + 8 }; };
-  const pl = out(P), ql = out(Q);
+  const out = (pt, d) => { const dx = pt.x - 450, dy = pt.y - 300, L = Math.hypot(dx, dy) || 1; return { x: pt.x + d * dx / L, y: pt.y + d * dy / L + 6 }; };
+  const pl = out(P, 38), ql = out(Q, 30);
   return (
     <svg ref={f.ref} viewBox="0 0 900 600" onPointerMove={f.move} onPointerUp={f.up} style={svgStyle}>
+      <circle cx="450" cy="300" r="230" fill={PEACH} fillOpacity="0.35" />
       <line x1="140" y1="300" x2="760" y2="300" stroke={SOFT} strokeWidth="2.5" strokeDasharray="6 6" />
       <path d="M 220 300 A 230 230 0 0 1 680 300" fill="none" stroke={GOLD} strokeWidth="4.5" strokeDasharray="9 8" />
       <path d="M 220 300 A 230 230 0 0 0 680 300" fill="none" stroke={RED} strokeWidth="4.5" strokeDasharray="9 8" />
@@ -806,8 +827,8 @@ function FigTwin() {
       <text x="499" y="386" textAnchor="middle" fontSize="32" fill={RED}>↻</text>
       <circle cx={T.x} cy={T.y} r="9" fill={INK} /><circle cx={H.x} cy={H.y} r="9" fill={INK} />
       <Txt x={196} y={342} anchor="end">T</Txt><Txt x={704} y={342} anchor="start">H</Txt>
-      <Txt x={pl.x} y={pl.y} size={17} fill={INK} bold>P · the 45°-side beam</Txt>
-      <Txt x={ql.x} y={ql.y} size={17} fill={INK} bold>P′ · the 135° twin</Txt>
+      <Txt x={pl.x} y={pl.y} size={17} fill={INK} bold>{`P · the ${Math.round(th / 2)}° beam`}</Txt>
+      <Txt x={ql.x} y={ql.y} size={17} fill={INK} bold>{`P′ · the ${Math.round(180 - th / 2)}° twin`}</Txt>
       <Grab x={P.x} y={P.y} fill={GOLD} onDown={f.down("p")} />
       <Grab x={Q.x} y={Q.y} fill="#FFFFFF" onDown={f.down("twin")} />
       <Txt x={450} y={586} size={17} fill={INK}>same odds, opposite turning = the sign · drag P</Txt>
@@ -817,8 +838,9 @@ function FigTwin() {
 
 // ── STEPS 9 & 10 : measuring is asking / why the sign hides ──
 function AskCore({ figKey, showTwin }) {
-  const [st, setSt] = useSynced(figKey, { th: 55, eta: showTwin ? 0 : 30 });
-  const CX = 430, CY = 300, R = 230;
+  const [st, setSt] = useSynced(figKey, { th: SHARED.th, eta: showTwin ? 0 : 30 });
+  const shareTh = useSharedTh(setSt);
+  const CX = 450, CY = 300, R = 230;
   const ar = st.th / DEG, er = st.eta / DEG;
   const P = { x: CX + R * Math.cos(ar), y: CY - R * Math.sin(ar) };
   const Q = { x: P.x, y: 2 * CY - P.y };
@@ -826,7 +848,7 @@ function AskCore({ figKey, showTwin }) {
   const E2 = { x: 2 * CX - E1.x, y: 2 * CY - E1.y };
   const f = useFig((id, pt) => {
     const a = norm360(Math.atan2(CY - pt.y, pt.x - CX) * DEG);
-    if (id === "P") setSt((s) => ({ ...s, th: a }));
+    if (id === "P") { setSt((s) => ({ ...s, th: a })); shareTh(a); }
     else setSt((s) => ({ ...s, eta: a }));
   });
   const d2 = (A, B) => ((A.x - B.x) ** 2 + (A.y - B.y) ** 2) / (2 * R) ** 2;
@@ -834,9 +856,10 @@ function AskCore({ figKey, showTwin }) {
   const q1 = d2(Q, E2);
   const bar = (x, y, v, col, lab) => (
     <g key={lab}>
-      <rect x={x} y={y} width={170} height={30} rx={8} fill="#FFFFFF" stroke={LBLUE} strokeWidth="2" />
-      <rect x={x} y={y} width={170 * clamp(v, 0, 1)} height={30} rx={8} fill={col} opacity="0.85" />
-      <Txt x={x + 184} y={y + 23} anchor="start" size={13} fill={INK} bold>{lab} {(100 * v).toFixed(0)}%</Txt>
+      <rect x={x} y={y} width={22} height={340} fill="none" stroke={SOFT} strokeWidth={1.5} />
+      <rect x={x} y={y + 340 * (1 - clamp(v, 0, 1))} width={22} height={340 * clamp(v, 0, 1)} fill={GOLD} />
+      <Txt x={x + 11} y={y - 22} size={13} fill={SOFT}>{lab.trim()}</Txt>
+      <Txt x={x + 11} y={y + 364} size={16} fill={GOLD} bold>{(100 * v).toFixed(0)}%</Txt>
     </g>
   );
   const flat = Math.abs(((st.eta % 180) + 180) % 180) < 3 || Math.abs(((st.eta % 180) + 180) % 180) > 177;
@@ -851,22 +874,22 @@ function AskCore({ figKey, showTwin }) {
         <line x1={Q.x} y1={Q.y} x2={E1.x} y2={E1.y} stroke={TEAL} strokeWidth="2.5" strokeDasharray="6 5" />
         <line x1={Q.x} y1={Q.y} x2={E2.x} y2={E2.y} stroke={GOLD} strokeWidth="2.5" strokeDasharray="6 5" />
         <Grab x={Q.x} y={Q.y} r={10} fill="#FFFFFF" onDown={f.down("P")} />
-        <Txt x={Q.x + 30} y={Q.y + 30} size={17} fill={INK} bold>P′</Txt>
+        <Txt x={Q.x + 30} y={Q.y + 30} size={17} fill={INK} bold>{`P′ · the ${Math.round(180 - st.th / 2)}° twin`}</Txt>
       </>}
       <circle cx={E1.x} cy={E1.y} r="10" fill={INK} />
       <circle cx={E2.x} cy={E2.y} r="10" fill="#FFFFFF" stroke={INK} strokeWidth="3" />
       <Grab x={E1.x} y={E1.y} r={9} fill={INK} onDown={f.down("E")} />
       <Grab x={P.x} y={P.y} fill={GOLD} onDown={f.down("P")} />
-      <Txt x={P.x + 30} y={P.y - 18} size={17} fill={INK} bold>P</Txt>
+      <Txt x={P.x + 30} y={P.y - 18} size={17} fill={INK} bold>{`P · the ${Math.round(st.th / 2)}° beam`}</Txt>
       <Txt x={E1.x + (E1.x >= CX ? -22 : 22)} y={E1.y - 26} anchor={E1.x >= CX ? "end" : "start"} size={14} fill={INK} bold>this end?</Txt>
       {!showTwin && <>
-        {bar(620, 420, p1, TEAL, "yes")}
-        {bar(620, 470, 1 - p1, GOLD, "no ")}
-        <Txt x={620} y={396} anchor="start" size={14} fill={INK} bold>odds = squared chord</Txt>
+        {bar(840, 130, p1, GOLD, "yes")}
+        <Txt x={851} y={66} size={13} fill={SOFT}>detector</Txt>
       </>}
       {showTwin && <>
-        <Txt x={636} y={90} anchor="start" size={14} fill={INK} bold>{`P answers yes: ${(100 * p1).toFixed(0)}%`}</Txt>
-        <Txt x={636} y={124} anchor="start" size={14} fill={INK} bold>{`P′ answers yes: ${(100 * q1).toFixed(0)}%`}</Txt>
+        {bar(790, 130, p1, GOLD, "P")}
+        {bar(840, 130, q1, GOLD, "P′")}
+        <Txt x={826} y={66} size={13} fill={SOFT}>detector · yes</Txt>
         <Txt x={450} y={36} size={16} fill={flat ? RED : TEAL} bold>{flat ? "identical — the flip is blind" : "different — the tilt sees the sign"}</Txt>
       </>}
       <Txt x={450} y={586} size={17} fill={INK}>
